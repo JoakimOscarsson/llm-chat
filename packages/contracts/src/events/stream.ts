@@ -22,6 +22,13 @@ export const streamEventSchema = z.discriminatedUnion("event", [
     })
   }),
   z.object({
+    event: z.literal("settings_notice"),
+    data: z.object({
+      text: z.string(),
+      option: z.string().optional()
+    })
+  }),
+  z.object({
     event: z.literal("usage"),
     data: z.record(z.string(), z.number())
   }),
@@ -40,4 +47,3 @@ export const streamEventSchema = z.discriminatedUnion("event", [
     })
   })
 ]);
-

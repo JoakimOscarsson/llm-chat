@@ -108,3 +108,58 @@ test("PATCH /internal/sessions/:sessionId updates overrides and context shaping"
   ]);
   assert.equal(contextResponse.json().overrides.num_ctx, 2048);
 });
+
+test("POST /internal/sessions/:sessionId/messages and /assistant-result persist new turns into context history", async () => {
+  const app = createApp();
+
+  const userResponse = await app.inject({
+    method: "POST",
+    url: "/internal/sessions/sess_1/messages",
+    payload: {
+      message: {
+        id: "msg_user_new",
+        role: "user",
+        content: "Count to 10.",
+        createdAt: "2026-04-20T18:01:00.000Z"
+      }
+    }
+  });
+
+  assert.equal(userResponse.statusCode, 200);
+
+  const assistantResponse = await app.inject({
+    method: "POST",
+    url: "/internal/sessions/sess_1/assistant-result",
+    payload: {
+      message: {
+        id: "msg_assistant_new",
+        role: "assistant",
+        content: "1 2 3 4 5 6 7 8 9 10",
+        createdAt: "2026-04-20T18:01:03.000Z"
+      },
+      thinking: {
+        content: "Continue the counting sequence cleanly.",
+        collapsedByDefault: true
+      }
+    }
+  });
+
+  assert.equal(assistantResponse.statusCode, 200);
+
+  const contextResponse = await app.inject({
+    method: "GET",
+    url: "/internal/sessions/sess_1/context"
+  });
+
+  assert.equal(contextResponse.statusCode, 200);
+  assert.deepEqual(contextResponse.json().history.slice(-2), [
+    {
+      role: "user",
+      content: "Count to 10."
+    },
+    {
+      role: "assistant",
+      content: "1 2 3 4 5 6 7 8 9 10"
+    }
+  ]);
+});

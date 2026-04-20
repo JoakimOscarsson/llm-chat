@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import {
   appDefaultsResponseSchema,
   appDefaultsSchema,
+  assistantResultPersistRequestSchema,
+  messagePersistRequestSchema,
   sessionContextResponseSchema,
   sessionPatchSchema,
   sessionResponseSchema,
@@ -227,6 +229,50 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       model: payload.model ?? session.model,
       overrides: payload.overrides ? { ...session.overrides, ...payload.overrides } : session.overrides,
       updatedAt: fixedNow
+    };
+
+    sessionStore.set(sessionId, updated);
+    return sessionResponseSchema.parse({ session: updated });
+  });
+
+  app.post("/internal/sessions/:sessionId/messages", async (request, reply) => {
+    const sessionId = (request.params as { sessionId: string }).sessionId;
+    const session = sessionStore.get(sessionId);
+
+    if (!session) {
+      return reply.code(404).send({ message: "Session not found" });
+    }
+
+    const payload = messagePersistRequestSchema.parse(request.body ?? {});
+    const updated: SessionRecord = {
+      ...session,
+      messages: [...session.messages, payload.message],
+      updatedAt: payload.message.createdAt
+    };
+
+    sessionStore.set(sessionId, updated);
+    return sessionResponseSchema.parse({ session: updated });
+  });
+
+  app.post("/internal/sessions/:sessionId/assistant-result", async (request, reply) => {
+    const sessionId = (request.params as { sessionId: string }).sessionId;
+    const session = sessionStore.get(sessionId);
+
+    if (!session) {
+      return reply.code(404).send({ message: "Session not found" });
+    }
+
+    const payload = assistantResultPersistRequestSchema.parse(request.body ?? {});
+    const updatedMessage = payload.thinking
+      ? {
+          ...payload.message,
+          thinking: payload.thinking
+        }
+      : payload.message;
+    const updated: SessionRecord = {
+      ...session,
+      messages: [...session.messages, updatedMessage],
+      updatedAt: payload.message.createdAt
     };
 
     sessionStore.set(sessionId, updated);

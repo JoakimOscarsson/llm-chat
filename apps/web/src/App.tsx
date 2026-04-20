@@ -21,7 +21,13 @@ type SessionOverrides = {
   requestHistoryCount?: number;
   responseHistoryCount?: number;
   temperature?: number;
+  top_k?: number;
+  top_p?: number;
+  repeat_penalty?: number;
+  seed?: number;
   num_ctx?: number;
+  num_predict?: number;
+  stop?: string[];
   keep_alive?: string | number;
 };
 
@@ -36,6 +42,7 @@ type AppDefaults = {
     top_k: number;
     top_p: number;
     repeat_penalty: number;
+    seed?: number;
     num_ctx: number;
     num_predict: number;
     stop: string[];
@@ -171,6 +178,13 @@ function parseOptionalNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function parseStopSequences(value: string) {
+  return value
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export function App() {
   const [models, setModels] = useState<ModelSummary[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
@@ -183,14 +197,29 @@ export function App() {
   const [defaultRequestHistoryCount, setDefaultRequestHistoryCount] = useState(String(fallbackDefaults.requestHistoryCount));
   const [defaultResponseHistoryCount, setDefaultResponseHistoryCount] = useState(String(fallbackDefaults.responseHistoryCount));
   const [defaultTemperature, setDefaultTemperature] = useState(String(fallbackDefaults.options.temperature));
+  const [defaultTopK, setDefaultTopK] = useState(String(fallbackDefaults.options.top_k));
+  const [defaultTopP, setDefaultTopP] = useState(String(fallbackDefaults.options.top_p));
+  const [defaultRepeatPenalty, setDefaultRepeatPenalty] = useState(String(fallbackDefaults.options.repeat_penalty));
+  const [defaultSeed, setDefaultSeed] = useState(fallbackDefaults.options.seed !== undefined ? String(fallbackDefaults.options.seed) : "");
   const [defaultNumCtx, setDefaultNumCtx] = useState(String(fallbackDefaults.options.num_ctx));
+  const [defaultNumPredict, setDefaultNumPredict] = useState(String(fallbackDefaults.options.num_predict));
+  const [defaultStop, setDefaultStop] = useState(fallbackDefaults.options.stop.join("\n"));
+  const [defaultKeepAlive, setDefaultKeepAlive] = useState(
+    fallbackDefaults.options.keep_alive !== undefined ? String(fallbackDefaults.options.keep_alive) : ""
+  );
   const [defaultStreamThinking, setDefaultStreamThinking] = useState(fallbackDefaults.streamThinking);
   const [defaultsStatus, setDefaultsStatus] = useState("Defaults ready");
   const [overrideSystemPrompt, setOverrideSystemPrompt] = useState("");
   const [overrideRequestHistoryCount, setOverrideRequestHistoryCount] = useState("");
   const [overrideResponseHistoryCount, setOverrideResponseHistoryCount] = useState("");
   const [overrideTemperature, setOverrideTemperature] = useState("");
+  const [overrideTopK, setOverrideTopK] = useState("");
+  const [overrideTopP, setOverrideTopP] = useState("");
+  const [overrideRepeatPenalty, setOverrideRepeatPenalty] = useState("");
+  const [overrideSeed, setOverrideSeed] = useState("");
   const [overrideNumCtx, setOverrideNumCtx] = useState("");
+  const [overrideNumPredict, setOverrideNumPredict] = useState("");
+  const [overrideStop, setOverrideStop] = useState("");
   const [overrideKeepAlive, setOverrideKeepAlive] = useState("");
   const [overrideStatus, setOverrideStatus] = useState("Session inherits app defaults");
   const [prompt, setPrompt] = useState("");
@@ -226,7 +255,17 @@ export function App() {
       setOverrideTemperature(
         payload.session.overrides?.temperature !== undefined ? String(payload.session.overrides.temperature) : ""
       );
+      setOverrideTopK(payload.session.overrides?.top_k !== undefined ? String(payload.session.overrides.top_k) : "");
+      setOverrideTopP(payload.session.overrides?.top_p !== undefined ? String(payload.session.overrides.top_p) : "");
+      setOverrideRepeatPenalty(
+        payload.session.overrides?.repeat_penalty !== undefined ? String(payload.session.overrides.repeat_penalty) : ""
+      );
+      setOverrideSeed(payload.session.overrides?.seed !== undefined ? String(payload.session.overrides.seed) : "");
       setOverrideNumCtx(payload.session.overrides?.num_ctx !== undefined ? String(payload.session.overrides.num_ctx) : "");
+      setOverrideNumPredict(
+        payload.session.overrides?.num_predict !== undefined ? String(payload.session.overrides.num_predict) : ""
+      );
+      setOverrideStop(payload.session.overrides?.stop?.join("\n") ?? "");
       setOverrideKeepAlive(
         payload.session.overrides?.keep_alive !== undefined ? String(payload.session.overrides.keep_alive) : ""
       );
@@ -275,7 +314,18 @@ export function App() {
         setDefaultRequestHistoryCount(String(defaultsPayload.defaults.requestHistoryCount));
         setDefaultResponseHistoryCount(String(defaultsPayload.defaults.responseHistoryCount));
         setDefaultTemperature(String(defaultsPayload.defaults.options.temperature));
+        setDefaultTopK(String(defaultsPayload.defaults.options.top_k));
+        setDefaultTopP(String(defaultsPayload.defaults.options.top_p));
+        setDefaultRepeatPenalty(String(defaultsPayload.defaults.options.repeat_penalty));
+        setDefaultSeed(
+          defaultsPayload.defaults.options.seed !== undefined ? String(defaultsPayload.defaults.options.seed) : ""
+        );
         setDefaultNumCtx(String(defaultsPayload.defaults.options.num_ctx));
+        setDefaultNumPredict(String(defaultsPayload.defaults.options.num_predict));
+        setDefaultStop(defaultsPayload.defaults.options.stop.join("\n"));
+        setDefaultKeepAlive(
+          defaultsPayload.defaults.options.keep_alive !== undefined ? String(defaultsPayload.defaults.options.keep_alive) : ""
+        );
         setDefaultStreamThinking(defaultsPayload.defaults.streamThinking);
       } catch {
         setDefaultsStatus("Using fallback defaults");
@@ -350,6 +400,12 @@ export function App() {
           thinking: message.thinking?.trim() ? message.thinking : notice
         }))
       );
+    }
+
+    if (eventName === "settings_notice") {
+      const notice = payload.text ?? "One or more settings are unsupported for this model. Retrying without them.";
+      setLiveThinking(notice);
+      setStatusText("Retrying with supported settings...");
     }
 
     if (eventName === "error") {
@@ -548,7 +604,14 @@ export function App() {
         options: {
           ...defaults.options,
           temperature: Number(defaultTemperature),
-          num_ctx: Number(defaultNumCtx)
+          top_k: Number(defaultTopK),
+          top_p: Number(defaultTopP),
+          repeat_penalty: Number(defaultRepeatPenalty),
+          ...(parseOptionalInteger(defaultSeed) !== undefined ? { seed: parseOptionalInteger(defaultSeed) } : {}),
+          num_ctx: Number(defaultNumCtx),
+          num_predict: Number(defaultNumPredict),
+          stop: parseStopSequences(defaultStop),
+          ...(defaultKeepAlive.trim() ? { keep_alive: defaultKeepAlive } : {})
         }
       }
     };
@@ -577,7 +640,12 @@ export function App() {
     const parsedRequestHistoryCount = parseOptionalInteger(overrideRequestHistoryCount);
     const parsedResponseHistoryCount = parseOptionalInteger(overrideResponseHistoryCount);
     const parsedTemperature = parseOptionalNumber(overrideTemperature);
+    const parsedTopK = parseOptionalInteger(overrideTopK);
+    const parsedTopP = parseOptionalNumber(overrideTopP);
+    const parsedRepeatPenalty = parseOptionalNumber(overrideRepeatPenalty);
+    const parsedSeed = parseOptionalInteger(overrideSeed);
     const parsedNumCtx = parseOptionalInteger(overrideNumCtx);
+    const parsedNumPredict = parseOptionalInteger(overrideNumPredict);
 
     if (overrideSystemPrompt.trim()) {
       overrides.systemPrompt = overrideSystemPrompt;
@@ -595,8 +663,33 @@ export function App() {
       overrides.temperature = parsedTemperature;
     }
 
+    if (parsedTopK !== undefined) {
+      overrides.top_k = parsedTopK;
+    }
+
+    if (parsedTopP !== undefined) {
+      overrides.top_p = parsedTopP;
+    }
+
+    if (parsedRepeatPenalty !== undefined) {
+      overrides.repeat_penalty = parsedRepeatPenalty;
+    }
+
+    if (parsedSeed !== undefined) {
+      overrides.seed = parsedSeed;
+    }
+
     if (parsedNumCtx !== undefined) {
       overrides.num_ctx = parsedNumCtx;
+    }
+
+    if (parsedNumPredict !== undefined) {
+      overrides.num_predict = parsedNumPredict;
+    }
+
+    const parsedStop = parseStopSequences(overrideStop);
+    if (parsedStop.length > 0) {
+      overrides.stop = parsedStop;
     }
 
     if (overrideKeepAlive.trim()) {
@@ -777,8 +870,36 @@ export function App() {
               <input value={defaultTemperature} onChange={(event) => setDefaultTemperature(event.target.value)} />
             </label>
             <label className="settings-field">
+              <span>Top K</span>
+              <input value={defaultTopK} onChange={(event) => setDefaultTopK(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Top P</span>
+              <input value={defaultTopP} onChange={(event) => setDefaultTopP(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Repeat penalty</span>
+              <input value={defaultRepeatPenalty} onChange={(event) => setDefaultRepeatPenalty(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Seed</span>
+              <input value={defaultSeed} onChange={(event) => setDefaultSeed(event.target.value)} />
+            </label>
+            <label className="settings-field">
               <span>Context window</span>
               <input value={defaultNumCtx} onChange={(event) => setDefaultNumCtx(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Max tokens</span>
+              <input value={defaultNumPredict} onChange={(event) => setDefaultNumPredict(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Stop sequences</span>
+              <textarea value={defaultStop} onChange={(event) => setDefaultStop(event.target.value)} rows={3} />
+            </label>
+            <label className="settings-field">
+              <span>Keep alive</span>
+              <input value={defaultKeepAlive} onChange={(event) => setDefaultKeepAlive(event.target.value)} />
             </label>
             <label className="settings-toggle">
               <input checked={defaultStreamThinking} type="checkbox" onChange={(event) => setDefaultStreamThinking(event.target.checked)} />
@@ -813,8 +934,32 @@ export function App() {
               <input value={overrideTemperature} onChange={(event) => setOverrideTemperature(event.target.value)} />
             </label>
             <label className="settings-field">
+              <span>Top K override</span>
+              <input value={overrideTopK} onChange={(event) => setOverrideTopK(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Top P override</span>
+              <input value={overrideTopP} onChange={(event) => setOverrideTopP(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Repeat penalty override</span>
+              <input value={overrideRepeatPenalty} onChange={(event) => setOverrideRepeatPenalty(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Seed override</span>
+              <input value={overrideSeed} onChange={(event) => setOverrideSeed(event.target.value)} />
+            </label>
+            <label className="settings-field">
               <span>Context override</span>
               <input value={overrideNumCtx} onChange={(event) => setOverrideNumCtx(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Max tokens override</span>
+              <input value={overrideNumPredict} onChange={(event) => setOverrideNumPredict(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Stop override</span>
+              <textarea value={overrideStop} onChange={(event) => setOverrideStop(event.target.value)} rows={3} />
             </label>
             <label className="settings-field">
               <span>Keep alive override</span>

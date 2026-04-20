@@ -544,6 +544,135 @@ test("shows a non-thinking notice while still streaming the response", async () 
   expect(screen.getByText("Complete")).toBeInTheDocument();
 });
 
+test("shows unsupported settings notices while continuing the response stream", async () => {
+  const encoder = new TextEncoder();
+  let streamController: { enqueue(chunk: Uint8Array): void; close(): void } | null = null;
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [{ name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 }],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return new Response(
+        JSON.stringify({
+          sessions: [{ id: "sess_1", title: "Troubleshooting nginx config", model: "llama3.1:8b", updatedAt: "2026-04-20T18:03:00Z" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1")) {
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "Troubleshooting nginx config",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:03:00.000Z",
+            messages: [],
+            overrides: {}
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/settings/defaults")) {
+      return new Response(
+        JSON.stringify({
+          defaults: {
+            systemPrompt: "Use markdown.",
+            requestHistoryCount: 4,
+            responseHistoryCount: 3,
+            streamThinking: true,
+            persistSessions: true,
+            options: {
+              temperature: 0.4,
+              top_k: 40,
+              top_p: 0.9,
+              repeat_penalty: 1.05,
+              num_ctx: 4096,
+              num_predict: 256,
+              stop: []
+            }
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/chat/stream")) {
+      expect(init?.method).toBe("POST");
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            streamController = controller;
+          }
+        }),
+        { headers: { "content-type": "text/event-stream" } }
+      );
+    }
+
+    if (url.endsWith("/api/chat/stop")) {
+      return new Response(JSON.stringify({ stopped: true }), {
+        headers: {
+          "content-type": "application/json"
+        }
+      });
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  fireEvent.change(await screen.findByPlaceholderText("Send a message to the model..."), {
+    target: { value: "Hello" }
+  });
+  fireEvent.submit(screen.getByRole("button", { name: "Send" }).closest("form")!);
+
+  if (!streamController) {
+    throw new Error("stream controller was not initialized");
+  }
+
+  const controller = streamController as { enqueue(chunk: Uint8Array): void; close(): void };
+  controller.enqueue(encoder.encode('event: meta\ndata: {"requestId":"req_1","model":"llama3.1:8b"}\n\n'));
+  controller.enqueue(
+    encoder.encode(
+      'event: settings_notice\ndata: {"option":"top_k","text":"This model does not support the top_k setting. Retrying without it."}\n\n'
+    )
+  );
+  controller.enqueue(encoder.encode('event: response_delta\ndata: {"text":"Recovered answer"}\n\n'));
+  controller.enqueue(encoder.encode('event: done\ndata: {"finishReason":"stop"}\n\n'));
+  controller.close();
+
+  await waitFor(() => {
+    expect(screen.getByText("Recovered answer")).toBeInTheDocument();
+  });
+  expect(screen.getByText("This model does not support the top_k setting. Retrying without it.")).toBeInTheDocument();
+});
+
 test("pressing Enter sends while Shift+Enter inserts a newline", async () => {
   const chatRequests: string[] = [];
 

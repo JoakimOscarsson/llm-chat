@@ -55,6 +55,15 @@ export const sessionResponseSchema = z.object({
   session: sessionSchema
 });
 
+export const messagePersistRequestSchema = z.object({
+  message: chatMessageSchema
+});
+
+export const assistantResultPersistRequestSchema = z.object({
+  message: chatMessageSchema,
+  thinking: thinkingTraceSchema.optional()
+});
+
 export const sessionContextResponseSchema = z.object({
   sessionId: z.string(),
   model: z.string(),

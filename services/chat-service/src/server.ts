@@ -34,6 +34,13 @@ type SessionContext = {
   history: Array<{ role: "user" | "assistant"; content: string }>;
 };
 
+type StreamEvent =
+  | { eventName: "thinking_delta"; payload: { text?: string } }
+  | { eventName: "response_delta"; payload: { text?: string } }
+  | { eventName: "done"; payload: { finishReason?: string } }
+  | { eventName: "error"; payload: { message?: string } }
+  | { eventName: string; payload: Record<string, unknown> };
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ChatServiceConfig {
   return {
     port: Number(env.PORT ?? 4001),
@@ -68,6 +75,59 @@ async function fetchSessionContext(
 ): Promise<SessionContext> {
   const response = await fetchImpl(`${config.sessionServiceUrl}/internal/sessions/${sessionId}/context`);
   return sessionContextResponseSchema.parse(await response.json());
+}
+
+async function persistUserMessage(
+  config: ChatServiceConfig,
+  fetchImpl: typeof fetch,
+  sessionId: string,
+  message: { id: string; role: "user"; content: string; createdAt: string }
+) {
+  await fetchImpl(`${config.sessionServiceUrl}/internal/sessions/${sessionId}/messages`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ message })
+  });
+}
+
+async function persistAssistantResult(
+  config: ChatServiceConfig,
+  fetchImpl: typeof fetch,
+  sessionId: string,
+  message: { id: string; role: "assistant"; content: string; createdAt: string },
+  thinking: string
+) {
+  await fetchImpl(`${config.sessionServiceUrl}/internal/sessions/${sessionId}/assistant-result`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      message,
+      ...(thinking.trim()
+        ? {
+            thinking: {
+              content: thinking,
+              collapsedByDefault: true
+            }
+          }
+        : {})
+    })
+  });
+}
+
+function parseEventBlock(eventBlock: string): StreamEvent {
+  const lines = eventBlock.split("\n");
+  const eventName = lines.find((line) => line.startsWith("event:"))?.slice(6).trim() ?? "";
+  const dataLine = lines.find((line) => line.startsWith("data:"))?.slice(5).trim();
+  const payload = dataLine ? (JSON.parse(dataLine) as Record<string, unknown>) : {};
+
+  return {
+    eventName,
+    payload
+  } as StreamEvent;
 }
 
 export function createApp(options: CreateAppOptions = {}): FastifyInstance {
@@ -113,6 +173,11 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       let options = payload.options ?? {};
       let streamThinking = payload.streamThinking ?? true;
       let keepAlive = payload.keep_alive;
+      let assistantText = "";
+      let assistantThinking = "";
+      let sawTerminalEvent = false;
+      let streamBuffer = "";
+      const createdAt = new Date().toISOString();
 
       if (sessionId) {
         const context = await fetchSessionContext(config, fetchImpl, sessionId);
@@ -130,6 +195,15 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
           ...context.history,
           ...(message ? [{ role: "user", content: message }] : directMessages)
         ];
+
+        if (message) {
+          await persistUserMessage(config, fetchImpl, sessionId, {
+            id: `${requestId}-user`,
+            role: "user",
+            content: message,
+            createdAt
+          });
+        }
       } else if (message && messages.length === 0) {
         messages = [{ role: "user", content: message }];
       }
@@ -170,12 +244,64 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
           break;
         }
 
-        reply.raw.write(decoder.decode(value, { stream: true }));
+        const chunkText = decoder.decode(value, { stream: true });
+        reply.raw.write(chunkText);
+        streamBuffer += chunkText;
+
+        const eventBlocks = streamBuffer.split("\n\n");
+        streamBuffer = eventBlocks.pop() ?? "";
+        for (const eventBlock of eventBlocks) {
+          const { eventName, payload } = parseEventBlock(eventBlock);
+
+          if (eventName === "thinking_delta") {
+            assistantThinking += typeof payload.text === "string" ? payload.text : "";
+          }
+
+          if (eventName === "response_delta") {
+            assistantText += typeof payload.text === "string" ? payload.text : "";
+          }
+
+          if (eventName === "done" || eventName === "error") {
+            sawTerminalEvent = true;
+          }
+        }
       }
 
       const remainder = decoder.decode();
       if (remainder) {
         reply.raw.write(remainder);
+        streamBuffer += remainder;
+      }
+
+      if (streamBuffer.trim()) {
+        const { eventName, payload } = parseEventBlock(streamBuffer);
+
+        if (eventName === "thinking_delta") {
+          assistantThinking += typeof payload.text === "string" ? payload.text : "";
+        }
+
+        if (eventName === "response_delta") {
+          assistantText += typeof payload.text === "string" ? payload.text : "";
+        }
+
+        if (eventName === "done" || eventName === "error") {
+          sawTerminalEvent = true;
+        }
+      }
+
+      if (sessionId && sawTerminalEvent) {
+        await persistAssistantResult(
+          config,
+          fetchImpl,
+          sessionId,
+          {
+            id: `${requestId}-assistant`,
+            role: "assistant",
+            content: assistantText,
+            createdAt: new Date().toISOString()
+          },
+          assistantThinking
+        );
       }
 
       reply.raw.end();

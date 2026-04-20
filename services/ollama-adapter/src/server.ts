@@ -26,6 +26,11 @@ type ChatPayload = {
   keep_alive?: string | number;
 };
 
+type UnsupportedOption = {
+  key: string;
+  message: string;
+};
+
 function parseUpstreamErrorMessage(errorText: string) {
   const trimmed = errorText.trim();
 
@@ -59,6 +64,40 @@ function thinkingUnsupported(errorText: string, status: number) {
   );
 }
 
+function findUnsupportedOption(errorText: string, status: number): UnsupportedOption | null {
+  if (status < 400) {
+    return null;
+  }
+
+  const message = parseUpstreamErrorMessage(errorText);
+  const patterns = [
+    /unsupported option:\s*([a-zA-Z0-9_]+)/i,
+    /unknown option:\s*([a-zA-Z0-9_]+)/i,
+    /invalid option:\s*([a-zA-Z0-9_]+)/i,
+    /option\s+["']?([a-zA-Z0-9_]+)["']?\s+(?:is\s+)?not supported/i,
+    /does not support\s+([a-zA-Z0-9_]+)/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = pattern.exec(message);
+
+    if (match?.[1]) {
+      const key = match[1];
+
+      if (key === "thinking" || key === "think") {
+        return null;
+      }
+
+      return {
+        key,
+        message
+      };
+    }
+  }
+
+  return null;
+}
+
 async function fetchChatStream(
   config: OllamaAdapterConfig,
   fetchImpl: typeof fetch,
@@ -88,6 +127,22 @@ async function fetchChatStream(
     body: JSON.stringify(body),
     signal: abortSignal
   });
+}
+
+function withoutUnsupportedOption(payload: ChatPayload, key: string): ChatPayload {
+  const currentOptions = payload.options ?? {};
+
+  if (!(key in currentOptions)) {
+    return payload;
+  }
+
+  const nextOptions = { ...currentOptions };
+  delete nextOptions[key];
+
+  return {
+    ...payload,
+    options: nextOptions
+  };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): OllamaAdapterConfig {
@@ -189,7 +244,8 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     });
 
     try {
-      let upstream = await fetchChatStream(config, fetchImpl, abortController.signal, payload, true);
+      let activePayload = payload;
+      let upstream = await fetchChatStream(config, fetchImpl, abortController.signal, activePayload, true);
 
       if (!upstream.ok || !upstream.body) {
         const errorText = parseUpstreamErrorMessage(await upstream.text());
@@ -203,7 +259,63 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
               text: "This model does not support thinking. Streaming the answer without it."
             })}\n\n`
           );
-          upstream = await fetchChatStream(config, fetchImpl, abortController.signal, payload, false);
+          upstream = await fetchChatStream(config, fetchImpl, abortController.signal, activePayload, false);
+        } else {
+          const unsupportedOption = findUnsupportedOption(errorText, upstream.status);
+
+          if (unsupportedOption) {
+            activePayload = withoutUnsupportedOption(activePayload, unsupportedOption.key);
+            reply.raw.write("event: settings_notice\n");
+            reply.raw.write(
+              `data: ${JSON.stringify({
+                option: unsupportedOption.key,
+                text: `This model does not support the ${unsupportedOption.key} setting. Retrying without it.`
+              })}\n\n`
+            );
+            upstream = await fetchChatStream(
+              config,
+              fetchImpl,
+              abortController.signal,
+              activePayload,
+              payload.streamThinking ?? true
+            );
+          } else {
+            reply.raw.write("event: error\n");
+            reply.raw.write(
+              `data: ${JSON.stringify({
+                requestId,
+                model,
+                message: errorText || `Ollama upstream returned ${upstream.status}`,
+                status: upstream.status
+              })}\n\n`
+            );
+            reply.raw.end();
+            return reply;
+          }
+        }
+      }
+
+      if (!upstream.ok || !upstream.body) {
+        const errorText = parseUpstreamErrorMessage(await upstream.text());
+
+        const unsupportedOption = findUnsupportedOption(errorText, upstream.status);
+
+        if (unsupportedOption) {
+          activePayload = withoutUnsupportedOption(activePayload, unsupportedOption.key);
+          reply.raw.write("event: settings_notice\n");
+          reply.raw.write(
+            `data: ${JSON.stringify({
+              option: unsupportedOption.key,
+              text: `This model does not support the ${unsupportedOption.key} setting. Retrying without it.`
+            })}\n\n`
+          );
+          upstream = await fetchChatStream(
+            config,
+            fetchImpl,
+            abortController.signal,
+            activePayload,
+            payload.streamThinking ?? true
+          );
         } else {
           reply.raw.write("event: error\n");
           reply.raw.write(
