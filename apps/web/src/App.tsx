@@ -56,6 +56,7 @@ export function App() {
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const composerFormRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -204,6 +205,22 @@ export function App() {
     });
   };
 
+  const handlePromptKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+
+    if (event.shiftKey) {
+      event.preventDefault();
+      const nextValue = `${prompt}\n`;
+      setPrompt(nextValue);
+      return;
+    }
+
+    event.preventDefault();
+    composerFormRef.current?.requestSubmit();
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -285,7 +302,7 @@ export function App() {
           ) : null}
         </section>
 
-        <form className="composer" onSubmit={handleSubmit}>
+        <form className="composer" onSubmit={handleSubmit} ref={composerFormRef}>
           <textarea
             aria-label="Prompt"
             className="composer-input"
@@ -293,6 +310,7 @@ export function App() {
             rows={6}
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
+            onKeyDown={handlePromptKeyDown}
           />
           <div className="composer-actions">
             <div className="status-line">

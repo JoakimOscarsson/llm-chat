@@ -190,6 +190,85 @@ test("streams thinking and response into the UI as chunks arrive", async () => {
   });
 });
 
+test("pressing Enter sends while Shift+Enter inserts a newline", async () => {
+  const chatRequests: string[] = [];
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [{ name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 }],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return new Response(
+        JSON.stringify({
+          sessions: [{ id: "sess_1", title: "Troubleshooting nginx config", model: "llama3.1:8b", updatedAt: "2026-04-20T18:03:00Z" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/chat/stream")) {
+      chatRequests.push(String(init?.body ?? ""));
+      return new Response('event: done\ndata: {"finishReason":"stop"}\n\n', {
+        headers: {
+          "content-type": "text/event-stream"
+        }
+      });
+    }
+
+    if (url.endsWith("/api/chat/stop")) {
+      return new Response(JSON.stringify({ stopped: true }), {
+        headers: {
+          "content-type": "application/json"
+        }
+      });
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  const input = await screen.findByPlaceholderText("Send a message to the model...");
+
+  fireEvent.change(input, {
+    target: { value: "Line one" }
+  });
+  fireEvent.keyDown(input, { key: "Enter", code: "Enter", shiftKey: true });
+
+  expect(screen.getByPlaceholderText("Send a message to the model...")).toHaveValue("Line one\n");
+  expect(chatRequests).toHaveLength(0);
+
+  fireEvent.keyDown(screen.getByPlaceholderText("Send a message to the model..."), {
+    key: "Enter",
+    code: "Enter"
+  });
+
+  await waitFor(() => {
+    expect(chatRequests).toHaveLength(1);
+  });
+  expect(chatRequests[0]).toContain('"message":"Line one\\n"');
+});
+
 test("stops an in-flight stream and sends a stop request", async () => {
   let stopRequested = false;
 

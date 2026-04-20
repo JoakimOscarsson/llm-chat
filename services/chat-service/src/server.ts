@@ -54,9 +54,11 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
         : [];
 
     activeRequests.set(requestId, abortController);
-    request.raw.on("close", () => {
-      abortController.abort();
-      activeRequests.delete(requestId);
+    reply.raw.on("close", () => {
+      if (!reply.raw.writableEnded) {
+        abortController.abort();
+        activeRequests.delete(requestId);
+      }
     });
 
     try {
