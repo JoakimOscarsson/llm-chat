@@ -1,0 +1,153 @@
+# Implementation Plan
+
+## Delivery Strategy
+
+Build the thinnest end-to-end slice first, then harden around it.
+
+## Phase 0: Project Bootstrap
+
+### Goals
+
+- Initialize repository structure.
+- Stand up frontend and microservice dev shells.
+- Add Docker and Docker Compose.
+- Add shared linting, formatting, and TypeScript baseline.
+- Add shared contracts package.
+- Add per-service `AGENTS.md`, `README.md`, Dockerfile, and `.env.example`.
+
+### Exit Criteria
+
+- `docker compose up` starts frontend and all planned service containers.
+- Frontend can call gateway health endpoint.
+- Each service responds on `/health`.
+
+## Phase 1: Chat Skeleton
+
+### Goals
+
+- Basic chat page layout.
+- Multi-line input composer.
+- Session-local transcript rendering.
+- API gateway to model and session services.
+
+### Tasks
+
+- Create shell UI and chat state.
+- Add per-service config loading.
+- Implement `GET /api/models` through gateway and model service.
+- Implement `GET /api/sessions`.
+- Implement `GET /api/health`.
+
+### Exit Criteria
+
+- User can load the app and choose a discovered model.
+
+## Phase 2: Streaming Chat
+
+### Goals
+
+- Real-time response streaming from Ollama through adapter, chat service, and gateway to browser.
+- Separate thinking and final answer channels in the UI.
+- Error handling and stop generation.
+
+### Tasks
+
+- Implement `POST /api/chat/stream`.
+- Parse upstream stream format inside the adapter.
+- Relay normalized events through chat service and gateway.
+- Add frontend streaming reducer/state machine.
+- Add abort/cancel flow.
+
+### Exit Criteria
+
+- User sees streamed output in real time.
+- Cancel stops both UI stream and upstream request.
+
+## Phase 3: Advanced Request Options
+
+### Goals
+
+- Add options/settings screen.
+- Support history shaping and Ollama generation options.
+- Persist user preferences locally.
+
+### Tasks
+
+- Build settings UI.
+- Define settings schema.
+- Implement outbound message shaping in chat service.
+- Validate settings via shared contracts and service schemas.
+
+### Exit Criteria
+
+- User can control prompt context and key generation settings.
+
+## Phase 4: Metrics Integration Shell
+
+### Goals
+
+- Add async GPU VRAM widget with graceful fallback.
+
+### Tasks
+
+- Implement backend metrics adapter endpoint.
+- Implement dedicated metrics service endpoint.
+- Add timeout and unavailable-state handling.
+- Render chart/meter component.
+
+### Exit Criteria
+
+- Missing metrics backend does not affect chat.
+- Widget clearly distinguishes unavailable vs stale vs current data.
+
+## Phase 5: Hardening And Polish
+
+### Goals
+
+- Improve reliability, accessibility, and operational clarity.
+
+### Tasks
+
+- Add tests for payload shaping and stream parsing.
+- Add loading and error states.
+- Improve keyboard and screen-reader support.
+- Add export/copy/regenerate quality-of-life features if time allows.
+
+### Exit Criteria
+
+- Core flows have automated tests.
+- UI handles upstream failures gracefully.
+
+## Testing Plan
+
+### Unit
+
+- settings schema validation
+- message/history shaping
+- upstream stream parser
+- metrics adapter fallback behavior
+
+### Integration
+
+- backend to mocked Ollama stream
+- frontend rendering streamed events
+- cancel request flow
+
+### Manual
+
+- model refresh
+- invalid auth headers
+- unreachable Ollama
+- unreachable metrics backend
+- long multi-line input
+
+## Suggested Initial Backlog
+
+1. Scaffold repo and Docker Compose.
+2. Add backend config/env loading.
+3. Add models endpoint and UI selector.
+4. Implement streamed chat relay.
+5. Implement transcript rendering with thinking/final separation.
+6. Add settings/options screen.
+7. Add metrics panel placeholder and adapter.
+8. Add tests and UX polish.

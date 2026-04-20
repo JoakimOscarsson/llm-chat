@@ -1,0 +1,32 @@
+# LLM Chat App Planning Docs
+
+This directory contains the initial planning package for a Docker-based web chat interface targeting an Ollama-compatible backend.
+
+## Documents
+
+- `product-spec.md`: Scope, goals, user flows, and functional requirements.
+- `architecture-spec.md`: System design, runtime components, data flow, and major technical decisions.
+- `microservices-architecture.md`: Service boundaries, extraction strategy, and agent-friendly topology.
+- `implementation-plan.md`: Phased execution plan with milestones and acceptance criteria.
+- `repository-layout.md`: Proposed monorepo structure and ownership boundaries.
+- `api-contracts.md`: Frontend/backend API contracts, streaming behavior, and future metrics integration.
+- `interface-spec.md`: Detailed public and internal service contracts for microservice implementation.
+- `agent-guides.md`: Working agreements for implementation agents and future contributors.
+- `decision-log.md`: Recommendations, tradeoffs, and open questions that should be confirmed before coding.
+
+## Working Assumptions
+
+- The app is a self-hosted Docker deployment.
+- The LLM backend is an Ollama server reachable over HTTP(S), potentially behind Cloudflare Tunnel.
+- The UI should stream both "thinking" content and final assistant output if the backend exposes them.
+- A thin app backend is preferred over direct browser-to-Ollama calls so secrets stay server-side and CORS/auth concerns stay contained.
+- GPU VRAM metrics will be designed into the UI now, but the backend integration may ship later.
+
+## Recommended Reading Order
+
+1. `product-spec.md`
+2. `architecture-spec.md`
+3. `microservices-architecture.md`
+4. `interface-spec.md`
+5. `decision-log.md`
+6. `implementation-plan.md`
