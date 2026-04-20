@@ -104,8 +104,8 @@ test("renders discovered models from the gateway", async () => {
   expect(screen.getByRole("option", { name: "llama3.1:8b" })).toBeInTheDocument();
   expect(screen.getByRole("option", { name: "qwen2.5:7b" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /troubleshooting nginx config/i })).toBeInTheDocument();
-  expect(screen.getByText("Gateway ready")).toBeInTheDocument();
-  expect(screen.getByText("Metrics degraded")).toBeInTheDocument();
+  expect(screen.getAllByText("Gateway ready").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("Metrics unavailable").length).toBeGreaterThan(0);
   expect(screen.getByText("Pick a model, send a prompt, and the conversation will build here.")).toBeInTheDocument();
   expect(screen.queryByText("How should this chat app be structured?")).not.toBeInTheDocument();
 });
@@ -244,6 +244,7 @@ test("loads and saves app defaults and session overrides", async () => {
   render(<App />);
 
   expect(await screen.findByDisplayValue("Use markdown.")).toBeInTheDocument();
+  fireEvent.click(screen.getByText("App defaults"));
 
   fireEvent.change(screen.getByLabelText("System prompt"), {
     target: { value: "Use bullets." }
@@ -257,6 +258,7 @@ test("loads and saves app defaults and session overrides", async () => {
   fireEvent.change(screen.getByRole("combobox", { name: /model selector/i }), {
     target: { value: "llama3.1:8b" }
   });
+  fireEvent.click(screen.getByText("Session overrides"));
   fireEvent.change(screen.getByLabelText("System prompt override"), {
     target: { value: "Focus on code." }
   });
