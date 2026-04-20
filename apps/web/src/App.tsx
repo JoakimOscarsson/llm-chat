@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -32,6 +33,14 @@ type StreamEventPayload = {
   finishReason?: string;
 };
 
+type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  thinking?: string;
+  isStreaming?: boolean;
+};
+
 function parseEventBlock(eventBlock: string) {
   const lines = eventBlock.split("\n");
   const eventName = lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
@@ -44,13 +53,37 @@ function parseEventBlock(eventBlock: string) {
   };
 }
 
+function appendToLatestAssistant(
+  messages: ChatMessage[],
+  update: (message: ChatMessage) => ChatMessage
+) {
+  const nextMessages = [...messages];
+  let assistantIndex = -1;
+
+  for (let index = nextMessages.length - 1; index >= 0; index -= 1) {
+    if (nextMessages[index]?.role === "assistant") {
+      assistantIndex = index;
+      break;
+    }
+  }
+
+  if (assistantIndex === -1) {
+    return messages;
+  }
+
+  nextMessages[assistantIndex] = update(nextMessages[assistantIndex]);
+  return nextMessages;
+}
+
 export function App() {
   const [models, setModels] = useState<ModelSummary[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [liveThinking, setLiveThinking] = useState("Waiting for stream events...");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [liveThinking, setLiveThinking] = useState("Ready for the next prompt.");
+  const [statusText, setStatusText] = useState("Ready");
   const [assistantResponse, setAssistantResponse] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
@@ -91,21 +124,49 @@ export function App() {
   const handleStreamEvent = (eventName: string | undefined, payload: StreamEventPayload) => {
     if (eventName === "meta" && payload.requestId) {
       setActiveRequestId(payload.requestId);
+      setStatusText("Waiting for model output...");
     }
 
     if (eventName === "thinking_delta") {
-      setLiveThinking((current) => `${current}${payload.text ?? ""}`);
+      const nextText = payload.text ?? "";
+      setStatusText("Streaming reasoning...");
+      setLiveThinking((current) => `${current}${nextText}`);
+      setMessages((current) =>
+        appendToLatestAssistant(current, (message) => ({
+          ...message,
+          thinking: `${message.thinking ?? ""}${nextText}`
+        }))
+      );
     }
 
     if (eventName === "response_delta") {
-      setAssistantResponse((current) => `${current}${payload.text ?? ""}`);
+      const nextText = payload.text ?? "";
+      setStatusText("Streaming answer...");
+      setAssistantResponse((current) => `${current}${nextText}`);
+      setMessages((current) =>
+        appendToLatestAssistant(current, (message) => ({
+          ...message,
+          content: `${message.content}${nextText}`
+        }))
+      );
+    }
+
+    if (eventName === "done") {
+      setStatusText(payload.finishReason === "aborted" ? "Stopped" : "Complete");
+      setMessages((current) =>
+        appendToLatestAssistant(current, (message) => ({
+          ...message,
+          isStreaming: false
+        }))
+      );
     }
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!prompt.trim()) {
+    const messageText = prompt.trim();
+    if (!messageText) {
       return;
     }
 
@@ -113,10 +174,27 @@ export function App() {
     const abortController = new AbortController();
     let buffer = "";
 
-    setLiveThinking("");
+    setPrompt("");
+    setLiveThinking("Connecting to model...");
     setAssistantResponse("");
+    setStatusText("Sending prompt...");
     setIsStreaming(true);
     setActiveRequestId(requestId);
+    setMessages((current) => [
+      ...current,
+      {
+        id: `${requestId}-user`,
+        role: "user",
+        content: messageText
+      },
+      {
+        id: `${requestId}-assistant`,
+        role: "assistant",
+        content: "",
+        thinking: "",
+        isStreaming: true
+      }
+    ]);
     abortControllerRef.current = abortController;
 
     try {
@@ -128,7 +206,7 @@ export function App() {
         body: JSON.stringify({
           requestId,
           model: selectedModel,
-          message: prompt
+          message: messageText
         }),
         signal: abortController.signal
       });
@@ -175,6 +253,13 @@ export function App() {
     } catch (error) {
       if ((error as Error).name !== "AbortError") {
         setLiveThinking("Stream interrupted.");
+        setStatusText("Connection interrupted");
+        setMessages((current) =>
+          appendToLatestAssistant(current, (message) => ({
+            ...message,
+            isStreaming: false
+          }))
+        );
       }
     } finally {
       streamReaderRef.current = null;
@@ -190,6 +275,14 @@ export function App() {
     await streamReaderRef.current?.cancel();
     streamReaderRef.current = null;
     abortControllerRef.current = null;
+    setLiveThinking("Generation stopped.");
+    setStatusText("Stopped");
+    setMessages((current) =>
+      appendToLatestAssistant(current, (message) => ({
+        ...message,
+        isStreaming: false
+      }))
+    );
     setIsStreaming(false);
 
     if (!requestId) {
@@ -212,8 +305,7 @@ export function App() {
 
     if (event.shiftKey) {
       event.preventDefault();
-      const nextValue = `${prompt}\n`;
-      setPrompt(nextValue);
+      setPrompt((current) => `${current}\n`);
       return;
     }
 
@@ -273,33 +365,42 @@ export function App() {
         </header>
 
         <section className="thinking-panel">
-          <p className="eyebrow">Live thinking</p>
-          <div className="thinking-box">{liveThinking || "Waiting for stream events..."}</div>
+          <div className="section-header">
+            <div>
+              <p className="eyebrow">Live thinking</p>
+              <p className="panel-subtitle">Visible while the model reasons, saved collapsed in history.</p>
+            </div>
+            <span className={`status-pill ${isStreaming ? "working" : "muted"}`}>{statusText}</span>
+          </div>
+          <div className="thinking-box" role="status" aria-live="polite">
+            <div className="thinking-scroll">{liveThinking}</div>
+          </div>
         </section>
 
         <section className="transcript">
-          <article className="message user-message">
-            <p>How should this chat app be structured?</p>
-          </article>
-          <article className="message assistant-message">
-            <details>
-              <summary>Thinking trace</summary>
-              <p>Start with service boundaries, then define contracts.</p>
-            </details>
-            <p>
-              Start with a gateway, a chat service, a session service, a model
-              service, a metrics service, and an Ollama adapter.
-            </p>
-          </article>
-          {assistantResponse ? (
-            <article className="message assistant-message">
-              <details>
-                <summary>Thinking trace</summary>
-                <p>{liveThinking}</p>
-              </details>
-              <p>{assistantResponse}</p>
+          {messages.length === 0 ? (
+            <article className="message empty-state">
+              <p className="eyebrow">Transcript</p>
+              <p>Pick a model, send a prompt, and the conversation will build here.</p>
             </article>
           ) : null}
+          {messages.map((message) => (
+            <article className={`message ${message.role}-message`} key={message.id}>
+              {message.role === "assistant" && message.thinking ? (
+                <details>
+                  <summary>{message.isStreaming ? "Thinking trace (live)" : "Thinking trace"}</summary>
+                  <div className="thinking-trace">{message.thinking}</div>
+                </details>
+              ) : null}
+              {message.role === "assistant" ? (
+                <div className="markdown-body">
+                  {message.content ? <ReactMarkdown>{message.content}</ReactMarkdown> : <p className="pending-copy">Waiting for answer...</p>}
+                </div>
+              ) : (
+                <p>{message.content}</p>
+              )}
+            </article>
+          ))}
         </section>
 
         <form className="composer" onSubmit={handleSubmit} ref={composerFormRef}>

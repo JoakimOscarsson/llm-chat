@@ -91,9 +91,11 @@ test("renders discovered models from the gateway", async () => {
   expect(screen.getByRole("button", { name: /troubleshooting nginx config/i })).toBeInTheDocument();
   expect(screen.getByText("Gateway ready")).toBeInTheDocument();
   expect(screen.getByText("Metrics degraded")).toBeInTheDocument();
+  expect(screen.getByText("Pick a model, send a prompt, and the conversation will build here.")).toBeInTheDocument();
+  expect(screen.queryByText("How should this chat app be structured?")).not.toBeInTheDocument();
 });
 
-test("streams thinking and response into the UI as chunks arrive", async () => {
+test("streams thinking and markdown response into the UI as chunks arrive", async () => {
   const encoder = new TextEncoder();
   let streamController: { enqueue(chunk: Uint8Array): void; close(): void } | null = null;
 
@@ -166,6 +168,11 @@ test("streams thinking and response into the UI as chunks arrive", async () => {
   });
   fireEvent.submit(screen.getByRole("button", { name: "Send" }).closest("form")!);
 
+  expect(screen.getByPlaceholderText("Send a message to the model...")).toHaveValue("");
+  expect(screen.getByText("Sending prompt...")).toBeInTheDocument();
+  expect(screen.getByText("Hello")).toBeInTheDocument();
+  expect(screen.getByText("Waiting for answer...")).toBeInTheDocument();
+
   if (!streamController) {
     throw new Error("stream controller was not initialized");
   }
@@ -176,18 +183,21 @@ test("streams thinking and response into the UI as chunks arrive", async () => {
   controller.enqueue(encoder.encode('event: thinking_delta\ndata: {"text":"Thinking..."}\n\n'));
 
   await waitFor(() => {
+    expect(screen.getByText("Streaming reasoning...")).toBeInTheDocument();
     expect(container.querySelector(".thinking-box")).toHaveTextContent("Thinking...");
   });
 
   expect(screen.queryByText("Hello there")).not.toBeInTheDocument();
 
-  controller.enqueue(encoder.encode('event: response_delta\ndata: {"text":"Hello there"}\n\n'));
+  controller.enqueue(encoder.encode('event: response_delta\ndata: {"text":"# Hello there\\n\\n- First point"}\n\n'));
   controller.enqueue(encoder.encode('event: done\ndata: {"finishReason":"stop"}\n\n'));
   controller.close();
 
   await waitFor(() => {
-    expect(screen.getByText("Hello there")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Hello there" })).toBeInTheDocument();
   });
+  expect(screen.getByText("First point")).toBeInTheDocument();
+  expect(screen.getByText("Complete")).toBeInTheDocument();
 });
 
 test("pressing Enter sends while Shift+Enter inserts a newline", async () => {
@@ -266,7 +276,7 @@ test("pressing Enter sends while Shift+Enter inserts a newline", async () => {
   await waitFor(() => {
     expect(chatRequests).toHaveLength(1);
   });
-  expect(chatRequests[0]).toContain('"message":"Line one\\n"');
+  expect(chatRequests[0]).toContain('"message":"Line one"');
 });
 
 test("stops an in-flight stream and sends a stop request", async () => {

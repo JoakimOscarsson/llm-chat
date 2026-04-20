@@ -118,7 +118,7 @@ Completed.
 ### Tasks
 
 - Add tests for payload shaping and stream parsing.
-- Add loading and error states.
+- [x] Add loading and error states.
 - [x] Improve keyboard submit behavior for the composer.
 - Improve keyboard and screen-reader support.
 - Add export/copy/regenerate quality-of-life features if time allows.

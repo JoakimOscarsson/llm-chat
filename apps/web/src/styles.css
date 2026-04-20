@@ -13,13 +13,21 @@
   box-sizing: border-box;
 }
 
-body {
+html,
+body,
+#root {
   margin: 0;
   min-height: 100vh;
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
 }
 
 button,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -27,12 +35,14 @@ textarea {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr) 320px;
   min-height: 100vh;
+  height: 100vh;
 }
 
 .sidebar,
 .chat-panel,
 .utility-panel {
   padding: 24px;
+  min-height: 0;
 }
 
 .sidebar,
@@ -42,23 +52,43 @@ textarea {
   backdrop-filter: blur(16px);
 }
 
+.sidebar,
+.utility-panel {
+  overflow: auto;
+}
+
 .utility-panel {
   border-right: 0;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
+  align-content: start;
+  display: grid;
+  gap: 12px;
+  grid-auto-rows: max-content;
 }
 
 .chat-panel {
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto minmax(220px, 280px) minmax(0, 1fr) auto;
   gap: 20px;
+  min-width: 0;
 }
 
 .panel-header,
-.composer-actions {
+.composer-actions,
+.section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+.section-header {
+  align-items: flex-start;
+}
+
+.panel-subtitle {
+  color: rgba(241, 238, 230, 0.64);
+  font-size: 0.925rem;
 }
 
 .header-actions,
@@ -98,7 +128,6 @@ p {
 }
 
 .session-list,
-.utility-panel,
 .transcript {
   display: grid;
   gap: 12px;
@@ -128,15 +157,46 @@ p {
   padding: 16px;
 }
 
+.widget {
+  min-height: 0;
+}
+
 .thinking-panel,
 .composer {
   display: grid;
   gap: 10px;
+  min-height: 0;
+}
+
+.thinking-box {
+  min-height: 0;
+  height: 100%;
+  resize: vertical;
+  overflow: auto;
+}
+
+.thinking-scroll {
+  height: 100%;
+  overflow: auto;
+  color: rgba(211, 221, 255, 0.78);
+  white-space: pre-wrap;
 }
 
 .transcript {
   align-content: start;
   overflow: auto;
+  min-height: 0;
+  padding-right: 4px;
+}
+
+.message {
+  display: grid;
+  gap: 12px;
+}
+
+.empty-state {
+  border-style: dashed;
+  color: rgba(241, 238, 230, 0.76);
 }
 
 .user-message {
@@ -147,9 +207,59 @@ p {
   background: rgba(255, 155, 92, 0.08);
 }
 
+.thinking-trace {
+  border-left: 3px solid rgba(91, 148, 255, 0.28);
+  color: rgba(211, 221, 255, 0.78);
+  padding-left: 12px;
+  white-space: pre-wrap;
+}
+
+details summary {
+  color: rgba(211, 221, 255, 0.88);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.markdown-body {
+  color: #f7f3eb;
+}
+
+.markdown-body > * + * {
+  margin-top: 0.85rem;
+}
+
+.markdown-body pre,
+.markdown-body code {
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+}
+
+.markdown-body pre {
+  overflow: auto;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(8, 11, 16, 0.54);
+}
+
+.markdown-body code:not(pre code) {
+  padding: 0.1rem 0.35rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.25rem;
+}
+
+.pending-copy {
+  color: rgba(241, 238, 230, 0.6);
+  font-style: italic;
+}
+
 .composer-input {
   width: 100%;
   min-height: 140px;
+  max-height: 280px;
   padding: 16px;
   color: inherit;
   resize: vertical;
@@ -187,6 +297,11 @@ p {
   color: rgba(255, 255, 255, 0.72);
 }
 
+.status-pill.working {
+  background: rgba(255, 209, 102, 0.18);
+  color: #ffd166;
+}
+
 .meter {
   width: 100%;
   height: 12px;
@@ -207,12 +322,21 @@ ul {
 }
 
 @media (max-width: 1100px) {
+  body {
+    overflow: auto;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
+    height: auto;
   }
 
   .sidebar,
   .utility-panel {
     border: 0;
+  }
+
+  .chat-panel {
+    grid-template-rows: auto minmax(180px, 240px) minmax(360px, auto) auto;
   }
 }
