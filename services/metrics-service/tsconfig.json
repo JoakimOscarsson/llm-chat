@@ -1,0 +1,9 @@
+{
+  "extends": "@llm-chat-app/tsconfig/node",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}
+

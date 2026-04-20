@@ -1,0 +1,24 @@
+{
+  "name": "@llm-chat-app/metrics-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/server.ts",
+    "lint": "echo \"lint not configured yet\"",
+    "start": "node dist/server.js",
+    "test": "echo \"tests not configured yet\"",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "@llm-chat-app/tsconfig": "workspace:*",
+    "@types/node": "^22.10.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
+
