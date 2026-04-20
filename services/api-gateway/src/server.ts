@@ -122,6 +122,15 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     return sessionResponseSchema.parse(await upstream.json());
   });
 
+  app.delete("/api/sessions/:sessionId/history", async (request) => {
+    const sessionId = (request.params as { sessionId: string }).sessionId;
+    const upstream = await fetchImpl(`${config.sessionServiceUrl}/internal/sessions/${sessionId}/history`, {
+      method: "DELETE"
+    });
+
+    return sessionResponseSchema.parse(await upstream.json());
+  });
+
   app.post("/api/chat/stream", async (request, reply) => {
     const upstream = await fetchImpl(`${config.chatServiceUrl}/internal/chat/stream`, {
       method: "POST",

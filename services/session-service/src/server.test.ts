@@ -163,3 +163,23 @@ test("POST /internal/sessions/:sessionId/messages and /assistant-result persist 
     }
   ]);
 });
+
+test("DELETE /internal/sessions/:sessionId/history clears persisted conversation history", async () => {
+  const app = createApp();
+
+  const response = await app.inject({
+    method: "DELETE",
+    url: "/internal/sessions/sess_1/history"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json().session.messages, []);
+
+  const contextResponse = await app.inject({
+    method: "GET",
+    url: "/internal/sessions/sess_1/context"
+  });
+
+  assert.equal(contextResponse.statusCode, 200);
+  assert.deepEqual(contextResponse.json().history, []);
+});

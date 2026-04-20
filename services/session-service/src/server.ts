@@ -279,6 +279,24 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     return sessionResponseSchema.parse({ session: updated });
   });
 
+  app.delete("/internal/sessions/:sessionId/history", async (request, reply) => {
+    const sessionId = (request.params as { sessionId: string }).sessionId;
+    const session = sessionStore.get(sessionId);
+
+    if (!session) {
+      return reply.code(404).send({ message: "Session not found" });
+    }
+
+    const updated: SessionRecord = {
+      ...session,
+      messages: [],
+      updatedAt: fixedNow
+    };
+
+    sessionStore.set(sessionId, updated);
+    return sessionResponseSchema.parse({ session: updated });
+  });
+
   app.get("/internal/sessions/:sessionId/context", async (request, reply) => {
     const sessionId = (request.params as { sessionId: string }).sessionId;
     const session = sessionStore.get(sessionId);

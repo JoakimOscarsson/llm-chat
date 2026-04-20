@@ -99,6 +99,13 @@ input {
   gap: 12px;
 }
 
+.composer-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 .model-select-label {
   display: grid;
   gap: 6px;

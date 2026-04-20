@@ -245,6 +245,145 @@ test("loads and saves app defaults and session overrides", async () => {
   expect(requests.find((request) => request.url.endsWith("/api/sessions/sess_1"))?.body).toContain('"requestHistoryCount":2');
 });
 
+test("clears transcript history for the active session", async () => {
+  const requests: string[] = [];
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [{ name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 }],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return new Response(
+        JSON.stringify({
+          sessions: [{ id: "sess_1", title: "Troubleshooting nginx config", model: "llama3.1:8b", updatedAt: "2026-04-20T18:03:00Z" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/settings/defaults")) {
+      return new Response(
+        JSON.stringify({
+          defaults: {
+            systemPrompt: "Use markdown.",
+            requestHistoryCount: 4,
+            responseHistoryCount: 3,
+            streamThinking: true,
+            persistSessions: true,
+            options: {
+              temperature: 0.4,
+              top_k: 40,
+              top_p: 0.9,
+              repeat_penalty: 1.05,
+              num_ctx: 4096,
+              num_predict: 256,
+              stop: []
+            }
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1/history")) {
+      requests.push(url);
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "Troubleshooting nginx config",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:04:00.000Z",
+            messages: [],
+            overrides: {}
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1")) {
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "Troubleshooting nginx config",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:03:00.000Z",
+            messages: [
+              {
+                id: "msg_1",
+                role: "user",
+                content: "Count to 10.",
+                createdAt: "2026-04-20T18:03:00.000Z"
+              },
+              {
+                id: "msg_2",
+                role: "assistant",
+                content: "1 2 3 4 5 6 7 8 9 10",
+                createdAt: "2026-04-20T18:03:05.000Z",
+                thinking: {
+                  content: "Continue the counting sequence cleanly.",
+                  collapsedByDefault: true
+                }
+              }
+            ],
+            overrides: {}
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/chat/stop")) {
+      return new Response(JSON.stringify({ stopped: true }), {
+        headers: {
+          "content-type": "application/json"
+        }
+      });
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  await screen.findByText("Count to 10.");
+  expect(screen.getByText("1 2 3 4 5 6 7 8 9 10")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Clear history" }));
+
+  await waitFor(() => {
+    expect(requests).toContain("/api/sessions/sess_1/history");
+  });
+
+  expect(screen.queryByText("Count to 10.")).not.toBeInTheDocument();
+  expect(screen.getByText("Pick a model, send a prompt, and the conversation will build here.")).toBeInTheDocument();
+  expect(screen.getByText("History cleared")).toBeInTheDocument();
+});
+
 test("streams thinking and markdown response into the UI as chunks arrive", async () => {
   const encoder = new TextEncoder();
   let streamController: { enqueue(chunk: Uint8Array): void; close(): void } | null = null;

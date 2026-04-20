@@ -255,6 +255,49 @@ test("PATCH /api/sessions/:sessionId proxies session override updates", async ()
   assert.equal(response.json().session.model, "qwen2.5-coder:7b");
 });
 
+test("DELETE /api/sessions/:sessionId/history proxies clear-history requests", async () => {
+  const app = createApp({
+    config: {
+      port: 4000,
+      chatServiceUrl: "http://chat-service:4001",
+      modelServiceUrl: "http://model-service:4002",
+      sessionServiceUrl: "http://session-service:4003",
+      metricsServiceUrl: "http://metrics-service:4004"
+    },
+    fetchImpl: async (input, init) => {
+      assert.equal(String(input), "http://session-service:4003/internal/sessions/sess_1/history");
+      assert.equal(init?.method, "DELETE");
+
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "New chat",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:00:00.000Z",
+            messages: [],
+            overrides: {}
+          }
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+  });
+
+  const response = await app.inject({
+    method: "DELETE",
+    url: "/api/sessions/sess_1/history"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json().session.messages, []);
+});
+
 test("GET /api/health aggregates downstream service health", async () => {
   const app = createApp({
     config: {

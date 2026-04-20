@@ -185,6 +185,21 @@ function parseStopSequences(value: string) {
     .filter(Boolean);
 }
 
+function mapSessionMessagesToTranscript(session: SessionDetail): ChatMessage[] {
+  return session.messages
+    .filter(
+      (message): message is SessionDetail["messages"][number] & { role: "user" | "assistant" } =>
+        message.role === "user" || message.role === "assistant"
+    )
+    .map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      thinking: message.role === "assistant" ? message.thinking?.content : undefined,
+      isStreaming: false
+    }));
+}
+
 export function App() {
   const [models, setModels] = useState<ModelSummary[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
@@ -244,6 +259,7 @@ export function App() {
       const response = await fetch(`${apiBaseUrl}/api/sessions/${sessionId}`);
       const payload = (await response.json()) as { session: SessionDetail };
       setActiveSession(payload.session);
+      setMessages((current) => (current.length === 0 ? mapSessionMessagesToTranscript(payload.session) : current));
       setSelectedModel(payload.session.model);
       setOverrideSystemPrompt(payload.session.overrides?.systemPrompt ?? "");
       setOverrideRequestHistoryCount(
@@ -344,6 +360,7 @@ export function App() {
       return;
     }
 
+    setMessages([]);
     void loadSessionDetail(selectedSessionId);
   }, [selectedSessionId]);
 
@@ -724,6 +741,37 @@ export function App() {
     );
   };
 
+  const handleClearHistory = async () => {
+    if (!selectedSessionId || isStreaming) {
+      return;
+    }
+
+    setStatusText("Clearing history...");
+    setLiveThinking("Resetting the active conversation.");
+
+    const response = await fetch(`${apiBaseUrl}/api/sessions/${selectedSessionId}/history`, {
+      method: "DELETE"
+    });
+    const payload = (await response.json()) as { session: SessionDetail };
+
+    setActiveSession(payload.session);
+    setMessages([]);
+    setPrompt("");
+    setLiveThinking("Ready for the next prompt.");
+    setStatusText("History cleared");
+    setActiveRequestId(null);
+    setSessions((current) =>
+      current.map((session) =>
+        session.id === payload.session.id
+          ? {
+              ...session,
+              updatedAt: payload.session.updatedAt
+            }
+          : session
+      )
+    );
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -836,15 +884,20 @@ export function App() {
                 {health?.dependencies.metricsService === "ok" ? "Metrics ready" : "Metrics degraded"}
               </span>
             </div>
-            {isStreaming ? (
-              <button className="primary-button" type="button" onClick={handleStop}>
-                Stop
+            <div className="composer-button-row">
+              <button className="secondary-button" disabled={!selectedSessionId || isStreaming} type="button" onClick={() => void handleClearHistory()}>
+                Clear history
               </button>
-            ) : (
-              <button className="primary-button" type="submit">
-                Send
-              </button>
-            )}
+              {isStreaming ? (
+                <button className="primary-button" type="button" onClick={handleStop}>
+                  Stop
+                </button>
+              ) : (
+                <button className="primary-button" type="submit">
+                  Send
+                </button>
+              )}
+            </div>
           </div>
         </form>
       </main>
