@@ -146,6 +146,8 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
         reply.raw.write("event: error\n");
         reply.raw.write(
           `data: ${JSON.stringify({
+            requestId,
+            model,
             message: errorText || `Ollama upstream returned ${upstream.status}`,
             status: upstream.status
           })}\n\n`
@@ -269,6 +271,8 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       reply.raw.write("event: error\n");
       reply.raw.write(
         `data: ${JSON.stringify({
+          requestId,
+          model,
           message: error instanceof Error ? error.message : "Unknown upstream error"
         })}\n\n`
       );

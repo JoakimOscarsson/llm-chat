@@ -31,6 +31,9 @@ type StreamEventPayload = {
   requestId?: string;
   text?: string;
   finishReason?: string;
+  message?: string;
+  model?: string;
+  status?: number;
 };
 
 type ChatMessage = {
@@ -84,7 +87,6 @@ export function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [liveThinking, setLiveThinking] = useState("Ready for the next prompt.");
   const [statusText, setStatusText] = useState("Ready");
-  const [assistantResponse, setAssistantResponse] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -124,7 +126,7 @@ export function App() {
   const handleStreamEvent = (eventName: string | undefined, payload: StreamEventPayload) => {
     if (eventName === "meta" && payload.requestId) {
       setActiveRequestId(payload.requestId);
-      setStatusText("Waiting for model output...");
+      setStatusText(`Waiting for ${payload.model ?? selectedModel}...`);
     }
 
     if (eventName === "thinking_delta") {
@@ -142,11 +144,26 @@ export function App() {
     if (eventName === "response_delta") {
       const nextText = payload.text ?? "";
       setStatusText("Streaming answer...");
-      setAssistantResponse((current) => `${current}${nextText}`);
       setMessages((current) =>
         appendToLatestAssistant(current, (message) => ({
           ...message,
           content: `${message.content}${nextText}`
+        }))
+      );
+    }
+
+    if (eventName === "error") {
+      const errorMessage = payload.message ?? "Unknown upstream error";
+      const errorModel = payload.model ?? selectedModel;
+      setLiveThinking(errorMessage);
+      setStatusText("Request failed");
+      setMessages((current) =>
+        appendToLatestAssistant(current, (message) => ({
+          ...message,
+          isStreaming: false,
+          content:
+            message.content ||
+            `Request failed while using \`${errorModel}\`.\n\n${errorMessage}`
         }))
       );
     }
@@ -176,8 +193,7 @@ export function App() {
 
     setPrompt("");
     setLiveThinking("Connecting to model...");
-    setAssistantResponse("");
-    setStatusText("Sending prompt...");
+    setStatusText(`Sending prompt to ${selectedModel}...`);
     setIsStreaming(true);
     setActiveRequestId(requestId);
     setMessages((current) => [

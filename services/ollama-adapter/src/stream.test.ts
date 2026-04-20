@@ -138,3 +138,39 @@ test("POST /internal/provider/chat/stream normalizes a real Ollama NDJSON stream
   assert.match(forwardedBody, /"stream":true/);
   assert.match(forwardedBody, /"messages":\[/);
 });
+
+test("POST /internal/provider/chat/stream includes model details in upstream error events", async () => {
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false
+    },
+    fetchImpl: async () =>
+      new Response("model not found", {
+        status: 404,
+        headers: {
+          "content-type": "text/plain"
+        }
+      })
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_404",
+      model: "qwen2.5-coder:7b",
+      messages: [{ role: "user", content: "Hello" }]
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /event: error/);
+  assert.match(response.body, /qwen2\.5-coder:7b/);
+  assert.match(response.body, /model not found/);
+  assert.match(response.body, /"status":404/);
+});
