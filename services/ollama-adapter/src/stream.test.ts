@@ -244,3 +244,73 @@ test("POST /internal/provider/chat/stream falls back when thinking is unsupporte
   assert.match(response.body, /Plain response/);
   assert.match(response.body, /event: done/);
 });
+
+test("POST /internal/provider/chat/stream falls back for Ollama JSON thinking errors", async () => {
+  const upstreamBody = [
+    JSON.stringify({
+      model: "qwen2.5-coder:7b",
+      message: {
+        role: "assistant",
+        content: "Streaming without a separate reasoning trace."
+      },
+      done: false
+    }),
+    JSON.stringify({
+      model: "qwen2.5-coder:7b",
+      done: true,
+      done_reason: "stop"
+    })
+  ].join("\n");
+
+  const requestBodies: string[] = [];
+
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false
+    },
+    fetchImpl: async (_input, init) => {
+      requestBodies.push(String(init?.body ?? ""));
+
+      if (requestBodies.length === 1) {
+        return new Response(JSON.stringify({ error: "\"qwen2.5-coder:7b\" does not support thinking" }), {
+          status: 400,
+          headers: {
+            "content-type": "application/json"
+          }
+        });
+      }
+
+      return new Response(upstreamBody, {
+        headers: {
+          "content-type": "application/x-ndjson"
+        }
+      });
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_qwen_retry",
+      model: "qwen2.5-coder:7b",
+      messages: [{ role: "user", content: "Hello" }],
+      streamThinking: true
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(requestBodies.length, 2);
+  assert.match(requestBodies[0] ?? "", /"think":true/);
+  assert.doesNotMatch(requestBodies[1] ?? "", /"think":true/);
+  assert.match(response.body, /event: thinking_unavailable/);
+  assert.match(response.body, /qwen2\.5-coder:7b/);
+  assert.match(response.body, /event: response_delta/);
+  assert.match(response.body, /Streaming without a separate reasoning trace/);
+  assert.doesNotMatch(response.body, /event: error/);
+});

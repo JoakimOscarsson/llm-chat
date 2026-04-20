@@ -26,12 +26,37 @@ type ChatPayload = {
   keep_alive?: string | number;
 };
 
+function parseUpstreamErrorMessage(errorText: string) {
+  const trimmed = errorText.trim();
+
+  if (!trimmed) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as { error?: unknown };
+
+    if (typeof parsed.error === "string") {
+      return parsed.error;
+    }
+  } catch {
+    // Fall back to the raw upstream text when the payload is not JSON.
+  }
+
+  return trimmed;
+}
+
 function thinkingUnsupported(errorText: string, status: number) {
   if (status < 400) {
     return false;
   }
 
-  return /(think|thinking).*(unsupported|not supported|unknown|invalid)|unsupported.*(think|thinking)/i.test(errorText);
+  const message = parseUpstreamErrorMessage(errorText);
+
+  return (
+    /(does not support thinking|thinking.*not supported|unsupported.*thinking|unknown.*think|invalid.*think)/i.test(message) ||
+    /(think|thinking).*(unsupported|not supported|unknown|invalid)|unsupported.*(think|thinking)/i.test(message)
+  );
 }
 
 async function fetchChatStream(
@@ -167,7 +192,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       let upstream = await fetchChatStream(config, fetchImpl, abortController.signal, payload, true);
 
       if (!upstream.ok || !upstream.body) {
-        const errorText = await upstream.text();
+        const errorText = parseUpstreamErrorMessage(await upstream.text());
 
         if ((payload.streamThinking ?? true) && thinkingUnsupported(errorText, upstream.status)) {
           reply.raw.write("event: thinking_unavailable\n");
@@ -195,7 +220,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       }
 
       if (!upstream.ok || !upstream.body) {
-        const errorText = await upstream.text();
+        const errorText = parseUpstreamErrorMessage(await upstream.text());
         reply.raw.write("event: error\n");
         reply.raw.write(
           `data: ${JSON.stringify({
