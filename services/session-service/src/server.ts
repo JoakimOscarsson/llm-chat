@@ -1,6 +1,15 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { fileURLToPath } from "node:url";
-import { sessionsResponseSchema, sessionSchema } from "@llm-chat-app/contracts";
+import {
+  appDefaultsResponseSchema,
+  appDefaultsSchema,
+  sessionContextResponseSchema,
+  sessionPatchSchema,
+  sessionResponseSchema,
+  sessionsResponseSchema,
+  type AppDefaults,
+  type SessionOverrides
+} from "@llm-chat-app/contracts";
 
 export type SessionServiceConfig = {
   port: number;
@@ -8,18 +17,91 @@ export type SessionServiceConfig = {
   sessionStoreUrl: string;
 };
 
-const fixedNow = "2026-04-20T18:00:00.000Z";
-const sessions = [
-  {
-    id: "sess_1",
-    title: "New chat",
-    model: "llama3.1:8b",
-    updatedAt: fixedNow
-  }
-];
+type SessionMessage = {
+  id: string;
+  role: "system" | "user" | "assistant";
+  content: string;
+  createdAt: string;
+  thinking?: {
+    content: string;
+    collapsedByDefault: true;
+  };
+};
+
+type SessionRecord = {
+  id: string;
+  title: string;
+  model: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: SessionMessage[];
+  overrides: SessionOverrides;
+};
 
 type CreateAppOptions = {
   config?: SessionServiceConfig;
+};
+
+const fixedNow = "2026-04-20T18:00:00.000Z";
+
+const initialDefaults: AppDefaults = {
+  systemPrompt: "You are a concise, helpful assistant. Format responses with Markdown, short paragraphs, and lists when useful.",
+  requestHistoryCount: 8,
+  responseHistoryCount: 8,
+  streamThinking: true,
+  persistSessions: true,
+  options: {
+    temperature: 0.7,
+    top_k: 40,
+    top_p: 0.9,
+    repeat_penalty: 1.05,
+    num_ctx: 8192,
+    num_predict: 512,
+    stop: []
+  }
+};
+
+const initialSession: SessionRecord = {
+  id: "sess_1",
+  title: "New chat",
+  model: "llama3.1:8b",
+  createdAt: fixedNow,
+  updatedAt: fixedNow,
+  messages: [
+    {
+      id: "msg_1",
+      role: "user",
+      content: "What have we already learned?",
+      createdAt: "2026-04-20T17:58:00.000Z"
+    },
+    {
+      id: "msg_2",
+      role: "assistant",
+      content: "We confirmed the streaming relay works end to end.",
+      createdAt: "2026-04-20T17:58:04.000Z",
+      thinking: {
+        content: "Summarize the most recent stable milestone first.",
+        collapsedByDefault: true
+      }
+    },
+    {
+      id: "msg_3",
+      role: "user",
+      content: "Show me the failing command.",
+      createdAt: "2026-04-20T17:59:00.000Z"
+    },
+    {
+      id: "msg_4",
+      role: "assistant",
+      content: "The command exits with code 127.",
+      createdAt: "2026-04-20T17:59:05.000Z",
+      thinking: {
+        content: "Point at the concrete shell failure instead of general troubleshooting.",
+        collapsedByDefault: true
+      }
+    }
+  ],
+  overrides: {}
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): SessionServiceConfig {
@@ -30,8 +112,59 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): SessionService
   };
 }
 
+function mergeDefaults(globalDefaults: AppDefaults, overrides: SessionOverrides) {
+  return {
+    systemPrompt: overrides.systemPrompt ?? globalDefaults.systemPrompt,
+    requestHistoryCount: overrides.requestHistoryCount ?? globalDefaults.requestHistoryCount,
+    responseHistoryCount: overrides.responseHistoryCount ?? globalDefaults.responseHistoryCount,
+    streamThinking: globalDefaults.streamThinking,
+    persistSessions: globalDefaults.persistSessions,
+    options: {
+      ...globalDefaults.options,
+      ...("temperature" in overrides ? { temperature: overrides.temperature } : {}),
+      ...("top_k" in overrides ? { top_k: overrides.top_k } : {}),
+      ...("top_p" in overrides ? { top_p: overrides.top_p } : {}),
+      ...("repeat_penalty" in overrides ? { repeat_penalty: overrides.repeat_penalty } : {}),
+      ...("seed" in overrides ? { seed: overrides.seed } : {}),
+      ...("num_ctx" in overrides ? { num_ctx: overrides.num_ctx } : {}),
+      ...("num_predict" in overrides ? { num_predict: overrides.num_predict } : {}),
+      ...("stop" in overrides ? { stop: overrides.stop } : {}),
+      ...("keep_alive" in overrides ? { keep_alive: overrides.keep_alive } : {})
+    }
+  };
+}
+
+function selectHistory(messages: SessionMessage[], requestHistoryCount: number, responseHistoryCount: number) {
+  const included = new Set<number>();
+  let userCount = 0;
+  let assistantCount = 0;
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+
+    if (message.role === "user" && userCount < requestHistoryCount) {
+      included.add(index);
+      userCount += 1;
+    }
+
+    if (message.role === "assistant" && assistantCount < responseHistoryCount) {
+      included.add(index);
+      assistantCount += 1;
+    }
+  }
+
+  return messages
+    .filter((_, index) => included.has(index))
+    .map((message) => ({
+      role: message.role as "user" | "assistant",
+      content: message.content
+    }));
+}
+
 export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   const config = options.config ?? loadConfig();
+  let defaults = appDefaultsSchema.parse(initialDefaults);
+  const sessionStore = new Map<string, SessionRecord>([[initialSession.id, structuredClone(initialSession)]]);
 
   const app = Fastify({
     logger: true
@@ -49,30 +182,75 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     contractVersion: "v1"
   }));
 
-  app.get("/internal/sessions", async () => sessionsResponseSchema.parse({ sessions }));
+  app.get("/internal/settings/defaults", async () => appDefaultsResponseSchema.parse({ defaults }));
 
-  app.get("/internal/sessions/:sessionId", async (request) => ({
-    session: sessionSchema.parse({
-      id: (request.params as { sessionId: string }).sessionId,
-      title: "Stub session",
-      model: "llama3.1:8b",
-      createdAt: fixedNow,
-      updatedAt: fixedNow,
-      messages: [],
-      overrides: {}
+  app.put("/internal/settings/defaults", async (request) => {
+    const payload = appDefaultsResponseSchema.parse(request.body ?? {});
+    defaults = payload.defaults;
+    return appDefaultsResponseSchema.parse({ defaults });
+  });
+
+  app.get("/internal/sessions", async () =>
+    sessionsResponseSchema.parse({
+      sessions: Array.from(sessionStore.values()).map((session) => ({
+        id: session.id,
+        title: session.title,
+        model: session.model,
+        updatedAt: session.updatedAt
+      }))
     })
-  }));
+  );
 
-  app.get("/internal/sessions/:sessionId/context", async (request) => ({
-    sessionId: (request.params as { sessionId: string }).sessionId,
-    model: "llama3.1:8b",
-    globalDefaults: {
-      requestHistoryCount: 8,
-      responseHistoryCount: 8
-    },
-    overrides: {},
-    history: []
-  }));
+  app.get("/internal/sessions/:sessionId", async (request, reply) => {
+    const sessionId = (request.params as { sessionId: string }).sessionId;
+    const session = sessionStore.get(sessionId);
+
+    if (!session) {
+      return reply.code(404).send({ message: "Session not found" });
+    }
+
+    return sessionResponseSchema.parse({ session });
+  });
+
+  app.patch("/internal/sessions/:sessionId", async (request, reply) => {
+    const sessionId = (request.params as { sessionId: string }).sessionId;
+    const session = sessionStore.get(sessionId);
+
+    if (!session) {
+      return reply.code(404).send({ message: "Session not found" });
+    }
+
+    const payload = sessionPatchSchema.parse(request.body ?? {});
+    const updated: SessionRecord = {
+      ...session,
+      title: payload.title ?? session.title,
+      model: payload.model ?? session.model,
+      overrides: payload.overrides ? { ...session.overrides, ...payload.overrides } : session.overrides,
+      updatedAt: fixedNow
+    };
+
+    sessionStore.set(sessionId, updated);
+    return sessionResponseSchema.parse({ session: updated });
+  });
+
+  app.get("/internal/sessions/:sessionId/context", async (request, reply) => {
+    const sessionId = (request.params as { sessionId: string }).sessionId;
+    const session = sessionStore.get(sessionId);
+
+    if (!session) {
+      return reply.code(404).send({ message: "Session not found" });
+    }
+
+    const resolved = mergeDefaults(defaults, session.overrides);
+
+    return sessionContextResponseSchema.parse({
+      sessionId: session.id,
+      model: session.model,
+      globalDefaults: defaults,
+      overrides: session.overrides,
+      history: selectHistory(session.messages, resolved.requestHistoryCount, resolved.responseHistoryCount)
+    });
+  });
 
   return app;
 }
@@ -80,5 +258,5 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const app = createApp();
   const config = loadConfig();
-  app.listen({ host: "0.0.0.0", port: config.port });
+  void app.listen({ host: "0.0.0.0", port: config.port });
 }

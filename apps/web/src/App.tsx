@@ -16,6 +16,52 @@ type SessionSummary = {
   updatedAt: string;
 };
 
+type SessionOverrides = {
+  systemPrompt?: string;
+  requestHistoryCount?: number;
+  responseHistoryCount?: number;
+  temperature?: number;
+  num_ctx?: number;
+  keep_alive?: string | number;
+};
+
+type AppDefaults = {
+  systemPrompt: string;
+  requestHistoryCount: number;
+  responseHistoryCount: number;
+  streamThinking: boolean;
+  persistSessions: boolean;
+  options: {
+    temperature: number;
+    top_k: number;
+    top_p: number;
+    repeat_penalty: number;
+    num_ctx: number;
+    num_predict: number;
+    stop: string[];
+    keep_alive?: string | number;
+  };
+};
+
+type SessionDetail = {
+  id: string;
+  title: string;
+  model: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: Array<{
+    id: string;
+    role: "system" | "user" | "assistant";
+    content: string;
+    createdAt: string;
+    thinking?: {
+      content: string;
+      collapsedByDefault: true;
+    };
+  }>;
+  overrides?: SessionOverrides;
+};
+
 type HealthResponse = {
   status: string;
   service: string;
@@ -42,6 +88,23 @@ type ChatMessage = {
   content: string;
   thinking?: string;
   isStreaming?: boolean;
+};
+
+const fallbackDefaults: AppDefaults = {
+  systemPrompt: "You are a concise, helpful assistant. Format responses with Markdown, short paragraphs, and lists when useful.",
+  requestHistoryCount: 8,
+  responseHistoryCount: 8,
+  streamThinking: true,
+  persistSessions: true,
+  options: {
+    temperature: 0.7,
+    top_k: 40,
+    top_p: 0.9,
+    repeat_penalty: 1.05,
+    num_ctx: 8192,
+    num_predict: 512,
+    stop: []
+  }
 };
 
 function parseEventBlock(eventBlock: string) {
@@ -90,11 +153,46 @@ function latestAssistantHasThinking(messages: ChatMessage[]) {
   return false;
 }
 
+function parseOptionalInteger(value: string) {
+  if (!value.trim()) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : undefined;
+}
+
+function parseOptionalNumber(value: string) {
+  if (!value.trim()) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 export function App() {
   const [models, setModels] = useState<ModelSummary[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [defaults, setDefaults] = useState<AppDefaults>(fallbackDefaults);
+  const [defaultSystemPrompt, setDefaultSystemPrompt] = useState(fallbackDefaults.systemPrompt);
+  const [defaultRequestHistoryCount, setDefaultRequestHistoryCount] = useState(String(fallbackDefaults.requestHistoryCount));
+  const [defaultResponseHistoryCount, setDefaultResponseHistoryCount] = useState(String(fallbackDefaults.responseHistoryCount));
+  const [defaultTemperature, setDefaultTemperature] = useState(String(fallbackDefaults.options.temperature));
+  const [defaultNumCtx, setDefaultNumCtx] = useState(String(fallbackDefaults.options.num_ctx));
+  const [defaultStreamThinking, setDefaultStreamThinking] = useState(fallbackDefaults.streamThinking);
+  const [defaultsStatus, setDefaultsStatus] = useState("Defaults ready");
+  const [overrideSystemPrompt, setOverrideSystemPrompt] = useState("");
+  const [overrideRequestHistoryCount, setOverrideRequestHistoryCount] = useState("");
+  const [overrideResponseHistoryCount, setOverrideResponseHistoryCount] = useState("");
+  const [overrideTemperature, setOverrideTemperature] = useState("");
+  const [overrideNumCtx, setOverrideNumCtx] = useState("");
+  const [overrideKeepAlive, setOverrideKeepAlive] = useState("");
+  const [overrideStatus, setOverrideStatus] = useState("Session inherits app defaults");
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [liveThinking, setLiveThinking] = useState("Ready for the next prompt.");
@@ -105,16 +203,53 @@ export function App() {
   const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const composerFormRef = useRef<HTMLFormElement | null>(null);
 
+  const loadModels = async () => {
+    const modelsResponse = await fetch(`${apiBaseUrl}/api/models`);
+    const modelsPayload = (await modelsResponse.json()) as { models: ModelSummary[] };
+    setModels(modelsPayload.models);
+    return modelsPayload.models;
+  };
+
+  const loadSessionDetail = async (sessionId: string) => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/sessions/${sessionId}`);
+      const payload = (await response.json()) as { session: SessionDetail };
+      setActiveSession(payload.session);
+      setSelectedModel(payload.session.model);
+      setOverrideSystemPrompt(payload.session.overrides?.systemPrompt ?? "");
+      setOverrideRequestHistoryCount(
+        payload.session.overrides?.requestHistoryCount !== undefined ? String(payload.session.overrides.requestHistoryCount) : ""
+      );
+      setOverrideResponseHistoryCount(
+        payload.session.overrides?.responseHistoryCount !== undefined ? String(payload.session.overrides.responseHistoryCount) : ""
+      );
+      setOverrideTemperature(
+        payload.session.overrides?.temperature !== undefined ? String(payload.session.overrides.temperature) : ""
+      );
+      setOverrideNumCtx(payload.session.overrides?.num_ctx !== undefined ? String(payload.session.overrides.num_ctx) : "");
+      setOverrideKeepAlive(
+        payload.session.overrides?.keep_alive !== undefined ? String(payload.session.overrides.keep_alive) : ""
+      );
+      setOverrideStatus(
+        payload.session.overrides && Object.keys(payload.session.overrides).length > 0
+          ? "Session overrides loaded"
+          : "Session inherits app defaults"
+      );
+    } catch {
+      setActiveSession(null);
+      setOverrideStatus("Session details unavailable");
+    }
+  };
+
   useEffect(() => {
     let active = true;
 
     const loadData = async () => {
-      const [modelsResponse, sessionsResponse, healthResponse] = await Promise.all([
-        fetch(`${apiBaseUrl}/api/models`),
+      const [modelsPayload, sessionsResponse, healthResponse] = await Promise.all([
+        loadModels(),
         fetch(`${apiBaseUrl}/api/sessions`),
         fetch(`${apiBaseUrl}/api/health`)
       ]);
-      const modelsPayload = (await modelsResponse.json()) as { models: ModelSummary[] };
       const sessionsPayload = (await sessionsResponse.json()) as { sessions: SessionSummary[] };
       const healthPayload = (await healthResponse.json()) as HealthResponse;
 
@@ -122,10 +257,29 @@ export function App() {
         return;
       }
 
-      setModels(modelsPayload.models);
       setSessions(sessionsPayload.sessions);
       setHealth(healthPayload);
-      setSelectedModel((current) => current || modelsPayload.models[0]?.name || "");
+      setSelectedSessionId((current) => current ?? sessionsPayload.sessions[0]?.id ?? null);
+      setSelectedModel((current) => current || sessionsPayload.sessions[0]?.model || modelsPayload[0]?.name || "");
+
+      try {
+        const defaultsResponse = await fetch(`${apiBaseUrl}/api/settings/defaults`);
+        const defaultsPayload = (await defaultsResponse.json()) as { defaults: AppDefaults };
+
+        if (!active) {
+          return;
+        }
+
+        setDefaults(defaultsPayload.defaults);
+        setDefaultSystemPrompt(defaultsPayload.defaults.systemPrompt);
+        setDefaultRequestHistoryCount(String(defaultsPayload.defaults.requestHistoryCount));
+        setDefaultResponseHistoryCount(String(defaultsPayload.defaults.responseHistoryCount));
+        setDefaultTemperature(String(defaultsPayload.defaults.options.temperature));
+        setDefaultNumCtx(String(defaultsPayload.defaults.options.num_ctx));
+        setDefaultStreamThinking(defaultsPayload.defaults.streamThinking);
+      } catch {
+        setDefaultsStatus("Using fallback defaults");
+      }
     };
 
     void loadData();
@@ -134,6 +288,14 @@ export function App() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedSessionId) {
+      return;
+    }
+
+    void loadSessionDetail(selectedSessionId);
+  }, [selectedSessionId]);
 
   const handleStreamEvent = (eventName: string | undefined, payload: StreamEventPayload) => {
     if (eventName === "meta" && payload.requestId) {
@@ -259,6 +421,7 @@ export function App() {
         },
         body: JSON.stringify({
           requestId,
+          sessionId: selectedSessionId ?? undefined,
           model: selectedModel,
           message: messageText
         }),
@@ -367,6 +530,107 @@ export function App() {
     composerFormRef.current?.requestSubmit();
   };
 
+  const handleRefreshModels = async () => {
+    const refreshedModels = await loadModels();
+    setSelectedModel((current) => current || refreshedModels[0]?.name || "");
+  };
+
+  const handleSaveDefaults = async () => {
+    setDefaultsStatus("Saving defaults...");
+
+    const payload = {
+      defaults: {
+        ...defaults,
+        systemPrompt: defaultSystemPrompt,
+        requestHistoryCount: Number(defaultRequestHistoryCount),
+        responseHistoryCount: Number(defaultResponseHistoryCount),
+        streamThinking: defaultStreamThinking,
+        options: {
+          ...defaults.options,
+          temperature: Number(defaultTemperature),
+          num_ctx: Number(defaultNumCtx)
+        }
+      }
+    };
+
+    const response = await fetch(`${apiBaseUrl}/api/settings/defaults`, {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+    const responsePayload = (await response.json()) as { defaults: AppDefaults };
+
+    setDefaults(responsePayload.defaults);
+    setDefaultsStatus("Defaults saved");
+  };
+
+  const handleSaveOverrides = async () => {
+    if (!selectedSessionId) {
+      return;
+    }
+
+    setOverrideStatus("Saving session overrides...");
+
+    const overrides: SessionOverrides = {};
+    const parsedRequestHistoryCount = parseOptionalInteger(overrideRequestHistoryCount);
+    const parsedResponseHistoryCount = parseOptionalInteger(overrideResponseHistoryCount);
+    const parsedTemperature = parseOptionalNumber(overrideTemperature);
+    const parsedNumCtx = parseOptionalInteger(overrideNumCtx);
+
+    if (overrideSystemPrompt.trim()) {
+      overrides.systemPrompt = overrideSystemPrompt;
+    }
+
+    if (parsedRequestHistoryCount !== undefined) {
+      overrides.requestHistoryCount = parsedRequestHistoryCount;
+    }
+
+    if (parsedResponseHistoryCount !== undefined) {
+      overrides.responseHistoryCount = parsedResponseHistoryCount;
+    }
+
+    if (parsedTemperature !== undefined) {
+      overrides.temperature = parsedTemperature;
+    }
+
+    if (parsedNumCtx !== undefined) {
+      overrides.num_ctx = parsedNumCtx;
+    }
+
+    if (overrideKeepAlive.trim()) {
+      overrides.keep_alive = overrideKeepAlive;
+    }
+
+    const response = await fetch(`${apiBaseUrl}/api/sessions/${selectedSessionId}`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        model: selectedModel,
+        overrides
+      })
+    });
+    const payload = (await response.json()) as { session: SessionDetail };
+
+    setActiveSession(payload.session);
+    setOverrideStatus(Object.keys(overrides).length > 0 ? "Session overrides saved" : "Session inherits app defaults");
+    setSessions((current) =>
+      current.map((session) =>
+        session.id === payload.session.id
+          ? {
+              ...session,
+              title: payload.session.title,
+              model: payload.session.model,
+              updatedAt: payload.session.updatedAt
+            }
+          : session
+      )
+    );
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -379,7 +643,13 @@ export function App() {
         </button>
         <div className="session-list">
           {sessions.map((session) => (
-            <button className="session-card" key={session.id} type="button">
+            <button
+              aria-pressed={selectedSessionId === session.id}
+              className="session-card"
+              key={session.id}
+              type="button"
+              onClick={() => setSelectedSessionId(session.id)}
+            >
               <span>{session.title}</span>
               <small>{session.updatedAt}</small>
             </button>
@@ -409,11 +679,8 @@ export function App() {
                 ))}
               </select>
             </label>
-            <button className="secondary-button" type="button">
+            <button className="secondary-button" type="button" onClick={() => void handleRefreshModels()}>
               Refresh models
-            </button>
-            <button className="secondary-button" type="button">
-              Session overrides
             </button>
           </div>
         </header>
@@ -491,14 +758,77 @@ export function App() {
 
       <aside className="utility-panel">
         <section className="widget">
-          <p className="eyebrow">Defaults</p>
-          <ul>
-            <li>System prompt enabled</li>
-            <li>Request history: 8</li>
-            <li>Response history: 8</li>
-            <li>Temperature: 0.7</li>
-          </ul>
+          <p className="eyebrow">App defaults</p>
+          <div className="settings-grid">
+            <label className="settings-field">
+              <span>System prompt</span>
+              <textarea value={defaultSystemPrompt} onChange={(event) => setDefaultSystemPrompt(event.target.value)} rows={5} />
+            </label>
+            <label className="settings-field">
+              <span>Request history</span>
+              <input value={defaultRequestHistoryCount} onChange={(event) => setDefaultRequestHistoryCount(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Response history</span>
+              <input value={defaultResponseHistoryCount} onChange={(event) => setDefaultResponseHistoryCount(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Temperature</span>
+              <input value={defaultTemperature} onChange={(event) => setDefaultTemperature(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Context window</span>
+              <input value={defaultNumCtx} onChange={(event) => setDefaultNumCtx(event.target.value)} />
+            </label>
+            <label className="settings-toggle">
+              <input checked={defaultStreamThinking} type="checkbox" onChange={(event) => setDefaultStreamThinking(event.target.checked)} />
+              <span>Stream thinking by default</span>
+            </label>
+          </div>
+          <div className="widget-footer">
+            <span className="panel-subtitle">{defaultsStatus}</span>
+            <button className="secondary-button" type="button" onClick={() => void handleSaveDefaults()}>
+              Save defaults
+            </button>
+          </div>
         </section>
+
+        <section className="widget">
+          <p className="eyebrow">Session overrides</p>
+          <div className="settings-grid">
+            <label className="settings-field">
+              <span>System prompt override</span>
+              <textarea value={overrideSystemPrompt} onChange={(event) => setOverrideSystemPrompt(event.target.value)} rows={4} />
+            </label>
+            <label className="settings-field">
+              <span>Request history override</span>
+              <input value={overrideRequestHistoryCount} onChange={(event) => setOverrideRequestHistoryCount(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Response history override</span>
+              <input value={overrideResponseHistoryCount} onChange={(event) => setOverrideResponseHistoryCount(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Temperature override</span>
+              <input value={overrideTemperature} onChange={(event) => setOverrideTemperature(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Context override</span>
+              <input value={overrideNumCtx} onChange={(event) => setOverrideNumCtx(event.target.value)} />
+            </label>
+            <label className="settings-field">
+              <span>Keep alive override</span>
+              <input value={overrideKeepAlive} onChange={(event) => setOverrideKeepAlive(event.target.value)} />
+            </label>
+          </div>
+          <div className="widget-footer">
+            <span className="panel-subtitle">{overrideStatus}</span>
+            <button className="secondary-button" disabled={!selectedSessionId} type="button" onClick={() => void handleSaveOverrides()}>
+              Save session
+            </button>
+          </div>
+        </section>
+
         <section className="widget">
           <p className="eyebrow">GPU VRAM</p>
           <div className="meter">

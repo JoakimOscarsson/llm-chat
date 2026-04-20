@@ -1,7 +1,12 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { fileURLToPath } from "node:url";
-import { modelsResponseSchema, sessionsResponseSchema } from "@llm-chat-app/contracts";
+import {
+  appDefaultsResponseSchema,
+  modelsResponseSchema,
+  sessionResponseSchema,
+  sessionsResponseSchema
+} from "@llm-chat-app/contracts";
 
 export type ApiGatewayConfig = {
   port: number;
@@ -34,6 +39,11 @@ async function fetchModels(config: ApiGatewayConfig, fetchImpl: typeof fetch) {
 async function fetchSessions(config: ApiGatewayConfig, fetchImpl: typeof fetch) {
   const response = await fetchImpl(`${config.sessionServiceUrl}/internal/sessions`);
   return sessionsResponseSchema.parse(await response.json());
+}
+
+async function fetchDefaults(config: ApiGatewayConfig, fetchImpl: typeof fetch) {
+  const response = await fetchImpl(`${config.sessionServiceUrl}/internal/settings/defaults`);
+  return appDefaultsResponseSchema.parse(await response.json());
 }
 
 async function fetchServiceStatus(url: string, fetchImpl: typeof fetch) {
@@ -78,6 +88,39 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   app.get("/api/models", async () => fetchModels(config, fetchImpl));
 
   app.get("/api/sessions", async () => fetchSessions(config, fetchImpl));
+
+  app.get("/api/settings/defaults", async () => fetchDefaults(config, fetchImpl));
+
+  app.put("/api/settings/defaults", async (request) => {
+    const upstream = await fetchImpl(`${config.sessionServiceUrl}/internal/settings/defaults`, {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(request.body ?? {})
+    });
+
+    return appDefaultsResponseSchema.parse(await upstream.json());
+  });
+
+  app.get("/api/sessions/:sessionId", async (request) => {
+    const sessionId = (request.params as { sessionId: string }).sessionId;
+    const upstream = await fetchImpl(`${config.sessionServiceUrl}/internal/sessions/${sessionId}`);
+    return sessionResponseSchema.parse(await upstream.json());
+  });
+
+  app.patch("/api/sessions/:sessionId", async (request) => {
+    const sessionId = (request.params as { sessionId: string }).sessionId;
+    const upstream = await fetchImpl(`${config.sessionServiceUrl}/internal/sessions/${sessionId}`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(request.body ?? {})
+    });
+
+    return sessionResponseSchema.parse(await upstream.json());
+  });
 
   app.post("/api/chat/stream", async (request, reply) => {
     const upstream = await fetchImpl(`${config.chatServiceUrl}/internal/chat/stream`, {

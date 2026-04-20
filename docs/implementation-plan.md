@@ -74,22 +74,25 @@ Completed.
 
 ## Phase 3: Advanced Request Options
 
+Status:
+Completed.
+
 ### Goals
 
-- Add options/settings screen.
-- Support history shaping and Ollama generation options.
-- Persist user preferences locally.
+- [x] Add options/settings screen.
+- [x] Support history shaping and Ollama generation options.
+- [x] Persist user preferences locally.
 
 ### Tasks
 
-- Build settings UI.
-- Define settings schema.
-- Implement outbound message shaping in chat service.
-- Validate settings via shared contracts and service schemas.
+- [x] Build settings UI.
+- [x] Define settings schema.
+- [x] Implement outbound message shaping in chat service.
+- [x] Validate settings via shared contracts and service schemas.
 
 ### Exit Criteria
 
-- User can control prompt context and key generation settings.
+- [x] User can control prompt context and key generation settings.
 
 ## Phase 4: Metrics Integration Shell
 
@@ -155,10 +158,10 @@ Completed.
 ## Suggested Initial Backlog
 
 1. [x] Scaffold repo and Docker Compose.
-2. [ ] Add backend config/env loading.
+2. [x] Add backend config/env loading.
 3. [x] Add models endpoint and UI selector.
 4. [x] Implement streamed chat relay.
 5. [x] Implement transcript rendering with thinking/final separation.
-6. [ ] Add settings/options screen.
+6. [x] Add settings/options screen.
 7. [ ] Add metrics panel placeholder and adapter.
 8. [ ] Add tests and UX polish.

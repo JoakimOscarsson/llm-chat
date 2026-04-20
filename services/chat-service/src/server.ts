@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { sessionContextResponseSchema, type AppDefaults, type SessionOverrides } from "@llm-chat-app/contracts";
 
 export type ChatServiceConfig = {
   port: number;
@@ -13,12 +14,60 @@ type CreateAppOptions = {
   fetchImpl?: typeof fetch;
 };
 
+type ChatStreamRequest = {
+  requestId?: string;
+  sessionId?: string;
+  model?: string;
+  message?: string;
+  messages?: Array<{ role: string; content: string }>;
+  options?: Record<string, unknown>;
+  streamThinking?: boolean;
+  think?: boolean | string;
+  keep_alive?: string | number;
+};
+
+type SessionContext = {
+  sessionId: string;
+  model: string;
+  globalDefaults: AppDefaults;
+  overrides: SessionOverrides;
+  history: Array<{ role: "user" | "assistant"; content: string }>;
+};
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ChatServiceConfig {
   return {
     port: Number(env.PORT ?? 4001),
     sessionServiceUrl: env.SESSION_SERVICE_URL ?? "http://session-service:4003",
     ollamaAdapterUrl: env.OLLAMA_ADAPTER_URL ?? "http://ollama-adapter:4005"
   };
+}
+
+function resolveSettings(globalDefaults: AppDefaults, overrides: SessionOverrides) {
+  return {
+    systemPrompt: overrides.systemPrompt ?? globalDefaults.systemPrompt,
+    streamThinking: globalDefaults.streamThinking,
+    options: {
+      ...globalDefaults.options,
+      ...("temperature" in overrides ? { temperature: overrides.temperature } : {}),
+      ...("top_k" in overrides ? { top_k: overrides.top_k } : {}),
+      ...("top_p" in overrides ? { top_p: overrides.top_p } : {}),
+      ...("repeat_penalty" in overrides ? { repeat_penalty: overrides.repeat_penalty } : {}),
+      ...("seed" in overrides ? { seed: overrides.seed } : {}),
+      ...("num_ctx" in overrides ? { num_ctx: overrides.num_ctx } : {}),
+      ...("num_predict" in overrides ? { num_predict: overrides.num_predict } : {}),
+      ...("stop" in overrides ? { stop: overrides.stop } : {}),
+      ...("keep_alive" in overrides ? { keep_alive: overrides.keep_alive } : {})
+    }
+  };
+}
+
+async function fetchSessionContext(
+  config: ChatServiceConfig,
+  fetchImpl: typeof fetch,
+  sessionId: string
+): Promise<SessionContext> {
+  const response = await fetchImpl(`${config.sessionServiceUrl}/internal/sessions/${sessionId}/context`);
+  return sessionContextResponseSchema.parse(await response.json());
 }
 
 export function createApp(options: CreateAppOptions = {}): FastifyInstance {
@@ -43,15 +92,12 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   }));
 
   app.post("/internal/chat/stream", async (request, reply) => {
-    const payload = (request.body ?? {}) as Record<string, unknown>;
+    const payload = (request.body ?? {}) as ChatStreamRequest;
     const requestId = typeof payload.requestId === "string" && payload.requestId.length > 0 ? payload.requestId : randomUUID();
     const abortController = new AbortController();
     const message = typeof payload.message === "string" ? payload.message : "";
-    const messages = Array.isArray(payload.messages)
-      ? payload.messages
-      : message
-        ? [{ role: "user", content: message }]
-        : [];
+    const directMessages = Array.isArray(payload.messages) ? payload.messages : [];
+    const sessionId = typeof payload.sessionId === "string" && payload.sessionId.length > 0 ? payload.sessionId : undefined;
 
     activeRequests.set(requestId, abortController);
     reply.raw.on("close", () => {
@@ -62,6 +108,32 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     });
 
     try {
+      let model = payload.model;
+      let messages = directMessages;
+      let options = payload.options ?? {};
+      let streamThinking = payload.streamThinking ?? true;
+      let keepAlive = payload.keep_alive;
+
+      if (sessionId) {
+        const context = await fetchSessionContext(config, fetchImpl, sessionId);
+        const resolved = resolveSettings(context.globalDefaults, context.overrides);
+
+        model = payload.model ?? context.model;
+        streamThinking = payload.streamThinking ?? resolved.streamThinking;
+        keepAlive = payload.keep_alive ?? resolved.options.keep_alive;
+        options = {
+          ...resolved.options,
+          ...(payload.options ?? {})
+        };
+        messages = [
+          ...(resolved.systemPrompt ? [{ role: "system", content: resolved.systemPrompt }] : []),
+          ...context.history,
+          ...(message ? [{ role: "user", content: message }] : directMessages)
+        ];
+      } else if (message && messages.length === 0) {
+        messages = [{ role: "user", content: message }];
+      }
+
       const upstream = await fetchImpl(`${config.ollamaAdapterUrl}/internal/provider/chat/stream`, {
         method: "POST",
         headers: {
@@ -69,12 +141,12 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
         },
         body: JSON.stringify({
           requestId,
-          model: payload.model,
+          model,
           messages,
-          options: payload.options ?? {},
-          streamThinking: payload.streamThinking ?? true,
+          options,
+          streamThinking,
           think: payload.think,
-          keep_alive: payload.keep_alive
+          keep_alive: keepAlive
         }),
         signal: abortController.signal
       });

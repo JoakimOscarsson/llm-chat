@@ -27,7 +27,8 @@ body {
 
 button,
 textarea,
-select {
+select,
+input {
   font: inherit;
 }
 
@@ -159,6 +160,40 @@ p {
 
 .widget {
   min-height: 0;
+}
+
+.widget-footer,
+.settings-grid,
+.settings-field {
+  display: grid;
+  gap: 10px;
+}
+
+.widget-footer {
+  margin-top: 12px;
+  align-items: center;
+}
+
+.settings-field span,
+.settings-toggle span {
+  color: rgba(241, 238, 230, 0.84);
+  font-size: 0.9rem;
+}
+
+.settings-field input,
+.settings-field textarea {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  padding: 10px 12px;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .thinking-panel,

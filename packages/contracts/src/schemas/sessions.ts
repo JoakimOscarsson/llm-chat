@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isoDateSchema } from "./common.js";
+import { appDefaultsSchema } from "./settings.js";
 
 const thinkingTraceSchema = z.object({
   content: z.string(),
@@ -47,5 +48,28 @@ export const sessionSchema = z.object({
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
   messages: z.array(chatMessageSchema).default([]),
+  overrides: sessionOverridesSchema.optional()
+});
+
+export const sessionResponseSchema = z.object({
+  session: sessionSchema
+});
+
+export const sessionContextResponseSchema = z.object({
+  sessionId: z.string(),
+  model: z.string(),
+  globalDefaults: appDefaultsSchema,
+  overrides: sessionOverridesSchema.default({}),
+  history: z.array(
+    z.object({
+      role: z.enum(["user", "assistant"]),
+      content: z.string()
+    })
+  )
+});
+
+export const sessionPatchSchema = z.object({
+  title: z.string().optional(),
+  model: z.string().optional(),
   overrides: sessionOverridesSchema.optional()
 });

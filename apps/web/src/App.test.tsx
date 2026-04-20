@@ -95,6 +95,156 @@ test("renders discovered models from the gateway", async () => {
   expect(screen.queryByText("How should this chat app be structured?")).not.toBeInTheDocument();
 });
 
+test("loads and saves app defaults and session overrides", async () => {
+  const requests: Array<{ url: string; body: string }> = [];
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [{ name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 }],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return new Response(
+        JSON.stringify({
+          sessions: [{ id: "sess_1", title: "Troubleshooting nginx config", model: "llama3.1:8b", updatedAt: "2026-04-20T18:03:00Z" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/settings/defaults")) {
+      if (init?.method === "PUT") {
+        requests.push({ url, body: String(init.body ?? "") });
+        return new Response(String(init.body ?? ""), { headers: { "content-type": "application/json" } });
+      }
+
+      return new Response(
+        JSON.stringify({
+          defaults: {
+            systemPrompt: "Use markdown.",
+            requestHistoryCount: 4,
+            responseHistoryCount: 3,
+            streamThinking: true,
+            persistSessions: true,
+            options: {
+              temperature: 0.4,
+              top_k: 40,
+              top_p: 0.9,
+              repeat_penalty: 1.05,
+              num_ctx: 4096,
+              num_predict: 256,
+              stop: []
+            }
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1")) {
+      if (init?.method === "PATCH") {
+        requests.push({ url, body: String(init.body ?? "") });
+        return new Response(
+          JSON.stringify({
+            session: {
+              id: "sess_1",
+              title: "Troubleshooting nginx config",
+              model: "qwen2.5-coder:7b",
+              createdAt: "2026-04-20T18:00:00.000Z",
+              updatedAt: "2026-04-20T18:03:00.000Z",
+              messages: [],
+              overrides: {
+                systemPrompt: "Focus on code.",
+                requestHistoryCount: 2,
+                temperature: 0.2
+              }
+            }
+          }),
+          { headers: { "content-type": "application/json" } }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "Troubleshooting nginx config",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:03:00.000Z",
+            messages: [],
+            overrides: {}
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/chat/stop")) {
+      return new Response(JSON.stringify({ stopped: true }), {
+        headers: {
+          "content-type": "application/json"
+        }
+      });
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  expect(await screen.findByDisplayValue("Use markdown.")).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText("System prompt"), {
+    target: { value: "Use bullets." }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save defaults" }));
+
+  await waitFor(() => {
+    expect(requests.some((request) => request.url.endsWith("/api/settings/defaults"))).toBe(true);
+  });
+
+  fireEvent.change(screen.getByRole("combobox", { name: /model selector/i }), {
+    target: { value: "llama3.1:8b" }
+  });
+  fireEvent.change(screen.getByLabelText("System prompt override"), {
+    target: { value: "Focus on code." }
+  });
+  fireEvent.change(screen.getByLabelText("Request history override"), {
+    target: { value: "2" }
+  });
+  fireEvent.change(screen.getByLabelText("Temperature override"), {
+    target: { value: "0.2" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save session" }));
+
+  await waitFor(() => {
+    expect(requests.some((request) => request.url.endsWith("/api/sessions/sess_1"))).toBe(true);
+  });
+
+  expect(requests.find((request) => request.url.endsWith("/api/settings/defaults"))?.body).toContain('"systemPrompt":"Use bullets."');
+  expect(requests.find((request) => request.url.endsWith("/api/sessions/sess_1"))?.body).toContain('"requestHistoryCount":2');
+});
+
 test("streams thinking and markdown response into the UI as chunks arrive", async () => {
   const encoder = new TextEncoder();
   let streamController: { enqueue(chunk: Uint8Array): void; close(): void } | null = null;
@@ -471,6 +621,7 @@ test("pressing Enter sends while Shift+Enter inserts a newline", async () => {
     expect(chatRequests).toHaveLength(1);
   });
   expect(chatRequests[0]).toContain('"message":"Line one"');
+  expect(chatRequests[0]).toContain('"sessionId":"sess_1"');
 });
 
 test("stops an in-flight stream and sends a stop request", async () => {
