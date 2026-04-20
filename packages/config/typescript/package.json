@@ -1,0 +1,11 @@
+{
+  "name": "@llm-chat-app/tsconfig",
+  "private": true,
+  "version": "0.1.0",
+  "exports": {
+    ".": "./base.json",
+    "./node": "./node.json",
+    "./web": "./web.json"
+  }
+}
+

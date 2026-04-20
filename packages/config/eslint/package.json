@@ -1,0 +1,10 @@
+{
+  "name": "@llm-chat-app/eslint-config",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./index.js"
+  }
+}
+
