@@ -51,7 +51,7 @@ Completed.
 ## Phase 2: Streaming Chat
 
 Status:
-In progress.
+Completed.
 
 ### Goals
 
@@ -64,13 +64,13 @@ In progress.
 - [x] Implement `POST /api/chat/stream`.
 - [x] Parse upstream stream format inside the adapter.
 - [x] Relay normalized events through chat service and gateway.
-- [ ] Add frontend streaming reducer/state machine.
-- [ ] Add abort/cancel flow.
+- [x] Add frontend streaming reducer/state machine.
+- [x] Add abort/cancel flow.
 
 ### Exit Criteria
 
-- User sees streamed output in real time.
-- Cancel stops both UI stream and upstream request.
+- [x] User sees streamed output in real time.
+- [x] Cancel stops both UI stream and upstream request.
 
 ## Phase 3: Advanced Request Options
 
@@ -155,7 +155,7 @@ In progress.
 1. [x] Scaffold repo and Docker Compose.
 2. [ ] Add backend config/env loading.
 3. [x] Add models endpoint and UI selector.
-4. [ ] Implement streamed chat relay.
+4. [x] Implement streamed chat relay.
 5. [x] Implement transcript rendering with thinking/final separation.
 6. [ ] Add settings/options screen.
 7. [ ] Add metrics panel placeholder and adapter.

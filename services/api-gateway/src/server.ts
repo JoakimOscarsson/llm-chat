@@ -89,10 +89,46 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     });
 
     reply.header("content-type", "text/event-stream");
-    const text = await upstream.text();
-    reply.raw.write(text);
+
+    if (!upstream.body) {
+      const text = await upstream.text();
+      reply.raw.write(text);
+      reply.raw.end();
+      return reply;
+    }
+
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      reply.raw.write(decoder.decode(value, { stream: true }));
+    }
+
+    const remainder = decoder.decode();
+    if (remainder) {
+      reply.raw.write(remainder);
+    }
+
     reply.raw.end();
     return reply;
+  });
+
+  app.post("/api/chat/stop", async (request) => {
+    const upstream = await fetchImpl(`${config.chatServiceUrl}/internal/chat/stop`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(request.body ?? {})
+    });
+
+    return upstream.json();
   });
 
   return app;

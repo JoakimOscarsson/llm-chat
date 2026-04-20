@@ -196,3 +196,42 @@ test("POST /api/chat/stream relays chat-service stream events", async () => {
   assert.match(response.body, /event: thinking_delta/);
   assert.match(response.body, /event: response_delta/);
 });
+
+test("POST /api/chat/stop proxies the stop request to the chat service", async () => {
+  const app = createApp({
+    config: {
+      port: 4000,
+      chatServiceUrl: "http://chat-service:4001",
+      modelServiceUrl: "http://model-service:4002",
+      sessionServiceUrl: "http://session-service:4003",
+      metricsServiceUrl: "http://metrics-service:4004"
+    },
+    fetchImpl: async (input, init) => {
+      if (String(input) === "http://chat-service:4001/internal/chat/stop") {
+        assert.equal(init?.method, "POST");
+
+        return new Response(JSON.stringify({ stopped: true, requestId: "req_1" }), {
+          headers: {
+            "content-type": "application/json"
+          }
+        });
+      }
+
+      throw new Error(`Unexpected url: ${String(input)}`);
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/chat/stop",
+    payload: {
+      requestId: "req_1"
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), {
+    stopped: true,
+    requestId: "req_1"
+  });
+});

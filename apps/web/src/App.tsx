@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -26,6 +26,24 @@ type HealthResponse = {
   };
 };
 
+type StreamEventPayload = {
+  requestId?: string;
+  text?: string;
+  finishReason?: string;
+};
+
+function parseEventBlock(eventBlock: string) {
+  const lines = eventBlock.split("\n");
+  const eventName = lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
+  const dataLine = lines.find((line) => line.startsWith("data:"))?.slice(5).trim();
+  const payload = dataLine ? (JSON.parse(dataLine) as StreamEventPayload) : {};
+
+  return {
+    eventName,
+    payload
+  };
+}
+
 export function App() {
   const [models, setModels] = useState<ModelSummary[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
@@ -34,6 +52,10 @@ export function App() {
   const [prompt, setPrompt] = useState("");
   const [liveThinking, setLiveThinking] = useState("Waiting for stream events...");
   const [assistantResponse, setAssistantResponse] = useState("");
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -65,40 +87,121 @@ export function App() {
     };
   }, []);
 
+  const handleStreamEvent = (eventName: string | undefined, payload: StreamEventPayload) => {
+    if (eventName === "meta" && payload.requestId) {
+      setActiveRequestId(payload.requestId);
+    }
+
+    if (eventName === "thinking_delta") {
+      setLiveThinking((current) => `${current}${payload.text ?? ""}`);
+    }
+
+    if (eventName === "response_delta") {
+      setAssistantResponse((current) => `${current}${payload.text ?? ""}`);
+    }
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    if (!prompt.trim()) {
+      return;
+    }
+
+    const requestId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`;
+    const abortController = new AbortController();
+    let buffer = "";
+
     setLiveThinking("");
     setAssistantResponse("");
+    setIsStreaming(true);
+    setActiveRequestId(requestId);
+    abortControllerRef.current = abortController;
 
-    const response = await fetch(`${apiBaseUrl}/api/chat/stream`, {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/chat/stream`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          requestId,
+          model: selectedModel,
+          message: prompt
+        }),
+        signal: abortController.signal
+      });
+
+      if (!response.body) {
+        const text = await response.text();
+        const events = text.split("\n\n").filter(Boolean);
+
+        for (const eventBlock of events) {
+          const { eventName, payload } = parseEventBlock(eventBlock);
+          handleStreamEvent(eventName, payload);
+        }
+
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      streamReaderRef.current = reader;
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const eventBlocks = buffer.split("\n\n");
+        buffer = eventBlocks.pop() ?? "";
+
+        for (const eventBlock of eventBlocks) {
+          const { eventName, payload } = parseEventBlock(eventBlock);
+          handleStreamEvent(eventName, payload);
+        }
+      }
+
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        const { eventName, payload } = parseEventBlock(buffer);
+        handleStreamEvent(eventName, payload);
+      }
+    } catch (error) {
+      if ((error as Error).name !== "AbortError") {
+        setLiveThinking("Stream interrupted.");
+      }
+    } finally {
+      streamReaderRef.current = null;
+      abortControllerRef.current = null;
+      setIsStreaming(false);
+    }
+  };
+
+  const handleStop = async () => {
+    const requestId = activeRequestId;
+
+    abortControllerRef.current?.abort();
+    await streamReaderRef.current?.cancel();
+    streamReaderRef.current = null;
+    abortControllerRef.current = null;
+    setIsStreaming(false);
+
+    if (!requestId) {
+      return;
+    }
+
+    await fetch(`${apiBaseUrl}/api/chat/stop`, {
       method: "POST",
       headers: {
         "content-type": "application/json"
       },
-      body: JSON.stringify({
-        model: selectedModel,
-        message: prompt
-      })
+      body: JSON.stringify({ requestId })
     });
-
-    const text = await response.text();
-    const events = text.split("\n\n").filter(Boolean);
-
-    for (const eventBlock of events) {
-      const lines = eventBlock.split("\n");
-      const eventName = lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
-      const dataLine = lines.find((line) => line.startsWith("data:"))?.slice(5).trim();
-      const payload = dataLine ? (JSON.parse(dataLine) as { text?: string }) : {};
-
-      if (eventName === "thinking_delta") {
-        setLiveThinking((current) => `${current}${payload.text ?? ""}`);
-      }
-
-      if (eventName === "response_delta") {
-        setAssistantResponse((current) => `${current}${payload.text ?? ""}`);
-      }
-    }
   };
 
   return (
@@ -200,9 +303,15 @@ export function App() {
                 {health?.dependencies.metricsService === "ok" ? "Metrics ready" : "Metrics degraded"}
               </span>
             </div>
-            <button className="primary-button" type="submit">
-              Send
-            </button>
+            {isStreaming ? (
+              <button className="primary-button" type="button" onClick={handleStop}>
+                Stop
+              </button>
+            ) : (
+              <button className="primary-button" type="submit">
+                Send
+              </button>
+            )}
           </div>
         </form>
       </main>

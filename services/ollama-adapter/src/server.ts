@@ -84,10 +84,14 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
 
   app.get("/internal/provider/models", async () => fetchModels(config, fetchImpl));
 
-  app.post("/internal/provider/chat/stream", async (_request, reply) => {
+  app.post("/internal/provider/chat/stream", async (request, reply) => {
+    const payload = (request.body ?? {}) as { requestId?: string; model?: string };
+
     reply.header("content-type", "text/event-stream");
     reply.raw.write("event: meta\n");
-    reply.raw.write(`data: ${JSON.stringify({ requestId: "stub-request", model: "llama3.1:8b" })}\n\n`);
+    reply.raw.write(
+      `data: ${JSON.stringify({ requestId: payload.requestId ?? "stub-request", model: payload.model ?? "llama3.1:8b" })}\n\n`
+    );
     reply.raw.write("event: thinking_delta\n");
     reply.raw.write(`data: ${JSON.stringify({ text: "Thinking..." })}\n\n`);
     reply.raw.write("event: response_delta\n");
@@ -97,6 +101,10 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     reply.raw.end();
     return reply;
   });
+
+  app.post("/internal/provider/chat/stop", async () => ({
+    stopped: true
+  }));
 
   return app;
 }
