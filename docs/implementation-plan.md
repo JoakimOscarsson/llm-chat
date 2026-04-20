@@ -96,39 +96,45 @@ Completed.
 
 ## Phase 4: Metrics Integration Shell
 
+Status:
+Completed.
+
 ### Goals
 
-- Add async GPU VRAM widget with graceful fallback.
+- [x] Add async GPU VRAM widget with graceful fallback.
 
 ### Tasks
 
-- Implement backend metrics adapter endpoint.
-- Implement dedicated metrics service endpoint.
-- Add timeout and unavailable-state handling.
-- Render chart/meter component.
+- [x] Implement backend metrics adapter endpoint.
+- [x] Implement dedicated metrics service endpoint.
+- [x] Add timeout and unavailable-state handling.
+- [x] Render chart/meter component.
 
 ### Exit Criteria
 
-- Missing metrics backend does not affect chat.
-- Widget clearly distinguishes unavailable vs stale vs current data.
+- [x] Missing metrics backend does not affect chat.
+- [x] Widget clearly distinguishes unavailable vs stale vs current data.
 
 ## Phase 5: Hardening And Polish
 
+Status:
+Completed for planned scope.
+
 ### Goals
 
-- Improve reliability, accessibility, and operational clarity.
+- [x] Improve reliability, accessibility, and operational clarity.
 
 ### Tasks
 
-- Add tests for payload shaping and stream parsing.
+- [x] Add tests for payload shaping and stream parsing.
 - [x] Add loading and error states.
 - [x] Improve keyboard submit behavior for the composer.
 - [x] Gracefully handle non-thinking models while continuing to stream answers.
 - [x] Persist user and assistant turns so history shaping uses live conversation state.
 - [x] Retry without unsupported model options instead of failing the full request when safe.
 - [x] Add a clear-history control that resets the active session transcript end to end.
-- Improve keyboard and screen-reader support.
-- Add export/copy/regenerate quality-of-life features if time allows.
+- [x] Improve keyboard and screen-reader support.
+- [ ] Add export/copy/regenerate quality-of-life features if time allows.
 
 ### Exit Criteria
 
@@ -166,5 +172,5 @@ Completed.
 4. [x] Implement streamed chat relay.
 5. [x] Implement transcript rendering with thinking/final separation.
 6. [x] Add settings/options screen.
-7. [ ] Add metrics panel placeholder and adapter.
-8. [ ] Add tests and UX polish.
+7. [x] Add metrics panel placeholder and adapter.
+8. [x] Add tests and UX polish.

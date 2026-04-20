@@ -1,6 +1,6 @@
 # LLM Chat App
 
-Microservice-first Ollama chat application scaffold.
+Microservice-first Ollama chat application for streaming conversations through an Ollama backend.
 
 ## Workspace Layout
 
@@ -15,8 +15,6 @@ Microservice-first Ollama chat application scaffold.
 - `packages/config`: shared TypeScript and lint configuration
 
 ## Getting Started
-
-This repository is scaffolded but dependencies are not yet installed in this step.
 
 Read [docs/interface-spec.md](/Users/joakim/Documents/codex/llm-chat-app/docs/interface-spec.md:1) before implementing features.
 
@@ -45,5 +43,7 @@ WEB_PORT=3001 docker compose up --build
 
 Notes:
 
-- The current local compose setup uses a stub model list from `ollama-adapter` so you can try the Phase 1 shell without a live Ollama backend.
-- Streaming chat is not wired yet, so this is currently a clickable shell for models, sessions, and health status.
+- Copy `.env.example` to `.env` and set `OLLAMA_BASE_URL`, `CF_ACCESS_CLIENT_ID`, and `CF_ACCESS_CLIENT_SECRET` for your upstream Ollama server.
+- Set `OLLAMA_USE_STUB=false` to use a real Ollama backend. Leave it `true` when you want a fixture-driven local shell.
+- The metrics widget is implemented from the app side and degrades cleanly when no metrics backend exists yet.
+- Streaming chat, model switching, settings shaping, clear history, and session persistence-in-memory are all wired end to end.

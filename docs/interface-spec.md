@@ -280,6 +280,11 @@ Response:
 Purpose:
 Update session title, model, or per-session overrides.
 
+### `DELETE /api/sessions/:sessionId/history`
+
+Purpose:
+Clear the persisted transcript for the active session without deleting the session itself.
+
 ### `POST /api/chat/stream`
 
 Request:
@@ -400,6 +405,10 @@ Fetch full session.
 #### `PATCH /internal/sessions/:sessionId`
 
 Update metadata and overrides.
+
+#### `DELETE /internal/sessions/:sessionId/history`
+
+Clear persisted user and assistant turns for a session while preserving session metadata and overrides.
 
 #### `POST /internal/sessions/:sessionId/messages`
 
@@ -582,6 +591,29 @@ The external endpoint is not yet fixed, so the service must adapt arbitrary back
     "totalMb": 16384,
     "utilizationPct": 68.6
   }
+}
+```
+
+It must also degrade to one of these normalized states when a live metrics backend is not yet available:
+
+```json
+{
+  "status": "stale",
+  "sampledAt": "2026-04-20T18:00:00.000Z",
+  "reason": "stale_sample",
+  "gpu": {
+    "usedMb": 11234,
+    "totalMb": 16384,
+    "utilizationPct": 68.6
+  }
+}
+```
+
+```json
+{
+  "status": "unavailable",
+  "sampledAt": "2026-04-20T18:00:00.000Z",
+  "reason": "not_configured"
 }
 ```
 
