@@ -65,6 +65,7 @@ async function fetchModels(config: OllamaAdapterConfig, fetchImpl: typeof fetch)
 export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   const config = options.config ?? loadConfig();
   const fetchImpl = options.fetchImpl ?? fetch;
+  const activeRequests = new Map<string, AbortController>();
 
   const app = Fastify({
     logger: true
@@ -85,26 +86,212 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   app.get("/internal/provider/models", async () => fetchModels(config, fetchImpl));
 
   app.post("/internal/provider/chat/stream", async (request, reply) => {
-    const payload = (request.body ?? {}) as { requestId?: string; model?: string };
+    const payload = (request.body ?? {}) as {
+      requestId?: string;
+      model?: string;
+      messages?: Array<{ role: string; content: string }>;
+      options?: Record<string, unknown>;
+      streamThinking?: boolean;
+      think?: boolean | string;
+      keep_alive?: string | number;
+    };
+    const requestId = payload.requestId ?? "stub-request";
+    const model = payload.model ?? "llama3.1:8b";
 
     reply.header("content-type", "text/event-stream");
     reply.raw.write("event: meta\n");
-    reply.raw.write(
-      `data: ${JSON.stringify({ requestId: payload.requestId ?? "stub-request", model: payload.model ?? "llama3.1:8b" })}\n\n`
-    );
-    reply.raw.write("event: thinking_delta\n");
-    reply.raw.write(`data: ${JSON.stringify({ text: "Thinking..." })}\n\n`);
-    reply.raw.write("event: response_delta\n");
-    reply.raw.write(`data: ${JSON.stringify({ text: "Hello there" })}\n\n`);
-    reply.raw.write("event: done\n");
-    reply.raw.write(`data: ${JSON.stringify({ finishReason: "stub" })}\n\n`);
-    reply.raw.end();
-    return reply;
+    reply.raw.write(`data: ${JSON.stringify({ requestId, model })}\n\n`);
+
+    if (config.useStub) {
+      reply.raw.write("event: thinking_delta\n");
+      reply.raw.write(`data: ${JSON.stringify({ text: "Thinking..." })}\n\n`);
+      reply.raw.write("event: response_delta\n");
+      reply.raw.write(`data: ${JSON.stringify({ text: "Hello there" })}\n\n`);
+      reply.raw.write("event: done\n");
+      reply.raw.write(`data: ${JSON.stringify({ finishReason: "stub" })}\n\n`);
+      reply.raw.end();
+      return reply;
+    }
+
+    const abortController = new AbortController();
+    activeRequests.set(requestId, abortController);
+    request.raw.on("close", () => {
+      abortController.abort();
+      activeRequests.delete(requestId);
+    });
+
+    try {
+      const upstream = await fetchImpl(`${config.ollamaBaseUrl}/api/chat`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "CF-Access-Client-Id": config.cfAccessClientId,
+          "CF-Access-Client-Secret": config.cfAccessClientSecret
+        },
+        body: JSON.stringify({
+          model,
+          messages: payload.messages ?? [],
+          options: payload.options ?? {},
+          think: payload.think ?? payload.streamThinking ?? true,
+          keep_alive: payload.keep_alive,
+          stream: true
+        }),
+        signal: abortController.signal
+      });
+
+      if (!upstream.ok || !upstream.body) {
+        const errorText = await upstream.text();
+        reply.raw.write("event: error\n");
+        reply.raw.write(
+          `data: ${JSON.stringify({
+            message: errorText || `Ollama upstream returned ${upstream.status}`,
+            status: upstream.status
+          })}\n\n`
+        );
+        reply.raw.end();
+        return reply;
+      }
+
+      const reader = upstream.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) {
+            continue;
+          }
+
+          const chunk = JSON.parse(trimmed) as {
+            done?: boolean;
+            done_reason?: string;
+            message?: { content?: string; thinking?: string };
+            total_duration?: number;
+            load_duration?: number;
+            prompt_eval_count?: number;
+            prompt_eval_duration?: number;
+            eval_count?: number;
+            eval_duration?: number;
+          };
+
+          if (chunk.message?.thinking) {
+            reply.raw.write("event: thinking_delta\n");
+            reply.raw.write(`data: ${JSON.stringify({ text: chunk.message.thinking })}\n\n`);
+          }
+
+          if (chunk.message?.content) {
+            reply.raw.write("event: response_delta\n");
+            reply.raw.write(`data: ${JSON.stringify({ text: chunk.message.content })}\n\n`);
+          }
+
+          if (chunk.done) {
+            reply.raw.write("event: usage\n");
+            reply.raw.write(
+              `data: ${JSON.stringify({
+                totalDuration: chunk.total_duration,
+                loadDuration: chunk.load_duration,
+                promptEvalCount: chunk.prompt_eval_count,
+                promptEvalDuration: chunk.prompt_eval_duration,
+                evalCount: chunk.eval_count,
+                evalDuration: chunk.eval_duration
+              })}\n\n`
+            );
+            reply.raw.write("event: done\n");
+            reply.raw.write(`data: ${JSON.stringify({ finishReason: chunk.done_reason ?? "stop" })}\n\n`);
+          }
+        }
+      }
+
+      const remainder = buffer.trim();
+      if (remainder) {
+        const chunk = JSON.parse(remainder) as {
+          done?: boolean;
+          done_reason?: string;
+          message?: { content?: string; thinking?: string };
+          total_duration?: number;
+          load_duration?: number;
+          prompt_eval_count?: number;
+          prompt_eval_duration?: number;
+          eval_count?: number;
+          eval_duration?: number;
+        };
+
+        if (chunk.message?.thinking) {
+          reply.raw.write("event: thinking_delta\n");
+          reply.raw.write(`data: ${JSON.stringify({ text: chunk.message.thinking })}\n\n`);
+        }
+
+        if (chunk.message?.content) {
+          reply.raw.write("event: response_delta\n");
+          reply.raw.write(`data: ${JSON.stringify({ text: chunk.message.content })}\n\n`);
+        }
+
+        if (chunk.done) {
+          reply.raw.write("event: usage\n");
+          reply.raw.write(
+            `data: ${JSON.stringify({
+              totalDuration: chunk.total_duration,
+              loadDuration: chunk.load_duration,
+              promptEvalCount: chunk.prompt_eval_count,
+              promptEvalDuration: chunk.prompt_eval_duration,
+              evalCount: chunk.eval_count,
+              evalDuration: chunk.eval_duration
+            })}\n\n`
+          );
+          reply.raw.write("event: done\n");
+          reply.raw.write(`data: ${JSON.stringify({ finishReason: chunk.done_reason ?? "stop" })}\n\n`);
+        }
+      }
+
+      reply.raw.end();
+      return reply;
+    } catch (error) {
+      if ((error as Error).name === "AbortError") {
+        reply.raw.write("event: done\n");
+        reply.raw.write(`data: ${JSON.stringify({ finishReason: "aborted" })}\n\n`);
+        reply.raw.end();
+        return reply;
+      }
+
+      reply.raw.write("event: error\n");
+      reply.raw.write(
+        `data: ${JSON.stringify({
+          message: error instanceof Error ? error.message : "Unknown upstream error"
+        })}\n\n`
+      );
+      reply.raw.end();
+      return reply;
+    } finally {
+      activeRequests.delete(requestId);
+    }
   });
 
-  app.post("/internal/provider/chat/stop", async () => ({
-    stopped: true
-  }));
+  app.post("/internal/provider/chat/stop", async (request) => {
+    const payload = (request.body ?? {}) as { requestId?: string };
+    const requestId = payload.requestId ?? "";
+    const controller = activeRequests.get(requestId);
+
+    if (controller) {
+      controller.abort();
+      activeRequests.delete(requestId);
+    }
+
+    return {
+      stopped: true,
+      requestId
+    };
+  });
 
   return app;
 }

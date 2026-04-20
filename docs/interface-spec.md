@@ -86,6 +86,7 @@ This means each service should expose environment toggles for stub mode instead 
 - `CF_ACCESS_CLIENT_ID`
 - `CF_ACCESS_CLIENT_SECRET`
 - `OLLAMA_TIMEOUT_MS`
+- `OLLAMA_USE_STUB`
 
 ## Shared Domain Types
 
@@ -538,10 +539,10 @@ Request:
 Response:
 
 - SSE with normalized provider events:
-  - `provider_meta`
+  - `meta`
   - `thinking_delta`
   - `response_delta`
-  - `provider_usage`
+  - `usage`
   - `done`
   - `error`
 

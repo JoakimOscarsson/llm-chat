@@ -46,6 +46,12 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     const payload = (request.body ?? {}) as Record<string, unknown>;
     const requestId = typeof payload.requestId === "string" && payload.requestId.length > 0 ? payload.requestId : randomUUID();
     const abortController = new AbortController();
+    const message = typeof payload.message === "string" ? payload.message : "";
+    const messages = Array.isArray(payload.messages)
+      ? payload.messages
+      : message
+        ? [{ role: "user", content: message }]
+        : [];
 
     activeRequests.set(requestId, abortController);
     request.raw.on("close", () => {
@@ -60,8 +66,13 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
           "content-type": "application/json"
         },
         body: JSON.stringify({
-          ...payload,
-          requestId
+          requestId,
+          model: payload.model,
+          messages,
+          options: payload.options ?? {},
+          streamThinking: payload.streamThinking ?? true,
+          think: payload.think,
+          keep_alive: payload.keep_alive
         }),
         signal: abortController.signal
       });

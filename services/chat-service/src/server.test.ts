@@ -18,6 +18,7 @@ test("POST /internal/chat/stream relays adapter stream events", async () => {
     "",
     ""
   ].join("\n");
+  let forwardedBody = "";
 
   const app = createApp({
     config: {
@@ -25,8 +26,9 @@ test("POST /internal/chat/stream relays adapter stream events", async () => {
       sessionServiceUrl: "http://session-service:4003",
       ollamaAdapterUrl: "http://ollama-adapter:4005"
     },
-    fetchImpl: async (input) => {
+    fetchImpl: async (input, init) => {
       assert.equal(String(input), "http://ollama-adapter:4005/internal/provider/chat/stream");
+      forwardedBody = String(init?.body ?? "");
 
       return new Response(streamBody, {
         headers: {
@@ -48,6 +50,7 @@ test("POST /internal/chat/stream relays adapter stream events", async () => {
   assert.equal(response.statusCode, 200);
   assert.match(response.body, /event: thinking_delta/);
   assert.match(response.body, /event: response_delta/);
+  assert.match(forwardedBody, /"messages":\[\{"role":"user","content":"Hello"\}\]/);
 });
 
 test("POST /internal/chat/stop aborts an in-flight stream and forwards the stop request", async () => {
