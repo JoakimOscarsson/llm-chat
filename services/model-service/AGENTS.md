@@ -21,3 +21,8 @@ Own available-model discovery.
 - Return predictable model shapes.
 - Be resilient to transient upstream failures.
 - Support manual refresh cleanly.
+
+## TDD Focus
+
+- Test cache behavior and refresh semantics.
+- Test empty and degraded provider responses.

@@ -45,3 +45,7 @@ This repository is organized for contract-first microservice development and age
 - Thinking traces are persisted but collapsed by default in history.
 - Global defaults plus per-session overrides are the required settings model.
 - Metrics failures must never break chat flows.
+
+## TDD Rule
+
+Use red-green-refactor by default. Read [docs/tdd-guidelines.md](/Users/joakim/Documents/codex/llm-chat-app/docs/tdd-guidelines.md:1) before implementing new behavior.

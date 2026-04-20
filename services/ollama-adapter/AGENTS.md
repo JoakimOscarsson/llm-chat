@@ -22,3 +22,9 @@ Own all direct communication with the upstream Ollama server.
 - Keep provider-specific logic isolated here.
 - Normalize upstream stream events for downstream services.
 - Never leak secrets in logs or responses.
+
+## TDD Focus
+
+- Test header injection without snapshotting secrets.
+- Test model-list normalization.
+- Test chunked stream parsing, partial chunks, and upstream failure modes.

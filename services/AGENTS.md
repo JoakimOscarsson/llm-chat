@@ -19,3 +19,9 @@
 - `src/domain`: core business logic
 - `src/clients`: downstream service or provider clients
 - `src/lib`: local utilities only
+
+## TDD Focus
+
+- Start with route, schema, or domain tests before implementation.
+- Mock downstream services at HTTP boundaries.
+- Treat degraded dependency behavior as mandatory test coverage.

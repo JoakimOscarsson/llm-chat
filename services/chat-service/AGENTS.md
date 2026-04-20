@@ -22,3 +22,9 @@ Own chat orchestration and message shaping.
 - Preserve request/response streaming cleanly.
 - Persist thinking traces with assistant messages.
 - Support cancellation safely.
+
+## TDD Focus
+
+- Test context shaping before transport code.
+- Test thinking and response stream assembly separately.
+- Test cancel and interrupted-stream persistence behavior.

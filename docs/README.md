@@ -12,6 +12,7 @@ This directory contains the initial planning package for a Docker-based web chat
 - `api-contracts.md`: Frontend/backend API contracts, streaming behavior, and future metrics integration.
 - `interface-spec.md`: Detailed public and internal service contracts for microservice implementation.
 - `agent-guides.md`: Working agreements for implementation agents and future contributors.
+- `tdd-guidelines.md`: Test-driven development rules for contracts, services, streams, and UI.
 - `decision-log.md`: Recommendations, tradeoffs, and open questions that should be confirmed before coding.
 
 ## Working Assumptions

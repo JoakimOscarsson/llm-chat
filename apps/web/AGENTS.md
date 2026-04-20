@@ -20,3 +20,9 @@ Own the browser chat experience and nothing upstream of the gateway contract.
 - Do not call Ollama directly.
 - Do not assume optional metrics data always exists.
 - Treat SSE event ordering and interruption as real-world concerns.
+
+## TDD Focus
+
+- Test stream event handling before UI polish.
+- Test collapsed thinking history and live thinking panel behavior explicitly.
+- Prefer component and reducer tests over brittle DOM-only coverage.

@@ -22,3 +22,8 @@ Own cross-service schemas and versioned contracts.
 - Changes here are high leverage.
 - Breaking changes require interface-spec updates.
 - Keep schemas explicit and conservative.
+
+## TDD Focus
+
+- Add schema tests before changing contract shapes.
+- Prefer narrow fixtures that demonstrate both valid and invalid payloads.

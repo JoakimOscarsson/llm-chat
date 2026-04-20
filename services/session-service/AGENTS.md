@@ -23,3 +23,9 @@ Own conversation persistence and settings state.
 - Preserve transcript integrity.
 - Make history retrieval deterministic.
 - Keep overrides and defaults clearly separated.
+
+## TDD Focus
+
+- Test session CRUD and transcript ordering first.
+- Test persistence of collapsed thinking traces.
+- Test defaults and overrides merge behavior independently.

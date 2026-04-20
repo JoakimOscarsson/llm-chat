@@ -22,3 +22,8 @@ Own GPU VRAM metrics retrieval and normalization.
 - Never cause chat failures.
 - Distinguish unavailable from stale data.
 - Keep timeouts short and behavior predictable.
+
+## TDD Focus
+
+- Test timeout, stale, unavailable, and healthy classifications.
+- Test adapter normalization against fixture payloads.

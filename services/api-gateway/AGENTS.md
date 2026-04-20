@@ -22,3 +22,9 @@ This service is the only browser-facing backend entry point.
 - Keep public contracts stable.
 - Normalize internal failures into browser-friendly responses.
 - Preserve streaming behavior end-to-end.
+
+## TDD Focus
+
+- Test public response envelopes first.
+- Test dependency degradation and gateway normalization.
+- Test SSE pass-through behavior with fixture streams.
