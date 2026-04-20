@@ -22,5 +22,7 @@ Read [docs/interface-spec.md](/Users/joakim/Documents/codex/llm-chat-app/docs/in
 
 ## Local Validation
 
-- `npm run ci:docker`: runs the same Docker-based validation path as GitHub Actions.
+- `npm run ci:docker`: runs the same Docker-based validation and static-analysis path as `.github/workflows/ci.yml`.
+- `npm run ci:docker:validate`: runs the main lint/typecheck/test/build container.
+- `npm run ci:docker:static-analysis`: runs the static-analysis container.
 - `npm run hooks:install`: installs the repository-managed Git hooks, including `pre-push`.

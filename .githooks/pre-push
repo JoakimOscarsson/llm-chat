@@ -3,4 +3,4 @@ set -eu
 
 echo "Running Docker CI validation before push..."
 docker build -f docker/ci.Dockerfile --target validate -t llm-chat-ci:validate .
-
+docker build -f docker/ci.Dockerfile --target static-analysis -t llm-chat-ci:static-analysis .

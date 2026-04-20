@@ -17,3 +17,7 @@ RUN pnpm typecheck
 RUN pnpm test
 RUN pnpm build
 
+FROM base AS static-analysis
+
+RUN pnpm lint
+RUN pnpm typecheck
