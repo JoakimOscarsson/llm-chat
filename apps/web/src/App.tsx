@@ -1,10 +1,40 @@
-const sessions = [
-  { id: "sess_1", title: "New chat", updatedAt: "Just now" }
-];
+import { useEffect, useState } from "react";
 
-const models = ["llama3.1:8b"];
+const sessions = [{ id: "sess_1", title: "New chat", updatedAt: "Just now" }];
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
+
+type ModelSummary = {
+  name: string;
+  modifiedAt: string;
+  size: number;
+};
 
 export function App() {
+  const [models, setModels] = useState<ModelSummary[]>([]);
+  const [selectedModel, setSelectedModel] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    const loadModels = async () => {
+      const response = await fetch(`${apiBaseUrl}/api/models`);
+      const payload = (await response.json()) as { models: ModelSummary[] };
+
+      if (!active) {
+        return;
+      }
+
+      setModels(payload.models);
+      setSelectedModel((current) => current || payload.models[0]?.name || "");
+    };
+
+    void loadModels();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -29,9 +59,24 @@ export function App() {
         <header className="panel-header">
           <div>
             <p className="eyebrow">Active model</p>
-            <h2>{models[0]}</h2>
+            <h2>{selectedModel || "Loading models..."}</h2>
           </div>
           <div className="header-actions">
+            <label className="model-select-label">
+              <span className="eyebrow">Model selector</span>
+              <select
+                aria-label="Model selector"
+                className="model-select"
+                onChange={(event) => setSelectedModel(event.target.value)}
+                value={selectedModel}
+              >
+                {models.map((model) => (
+                  <option key={model.name} value={model.name}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button className="secondary-button" type="button">
               Refresh models
             </button>
@@ -102,4 +147,3 @@ export function App() {
     </div>
   );
 }
-

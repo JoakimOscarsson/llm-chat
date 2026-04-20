@@ -1,34 +1,69 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import { fileURLToPath } from "node:url";
+import { modelsResponseSchema } from "@llm-chat-app/contracts";
 
-const port = Number(process.env.PORT ?? 4000);
+export type ApiGatewayConfig = {
+  port: number;
+  chatServiceUrl: string;
+  modelServiceUrl: string;
+  sessionServiceUrl: string;
+  metricsServiceUrl: string;
+};
 
-const app = Fastify({
-  logger: true
-});
+type CreateAppOptions = {
+  config?: ApiGatewayConfig;
+  fetchImpl?: typeof fetch;
+};
 
-await app.register(cors, { origin: true });
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiGatewayConfig {
+  return {
+    port: Number(env.PORT ?? 4000),
+    chatServiceUrl: env.CHAT_SERVICE_URL ?? "http://chat-service:4001",
+    modelServiceUrl: env.MODEL_SERVICE_URL ?? "http://model-service:4002",
+    sessionServiceUrl: env.SESSION_SERVICE_URL ?? "http://session-service:4003",
+    metricsServiceUrl: env.METRICS_SERVICE_URL ?? "http://metrics-service:4004"
+  };
+}
 
-app.get("/health", async () => ({
-  status: "ok",
-  service: "api-gateway",
-  version: "0.1.0"
-}));
+async function fetchModels(config: ApiGatewayConfig, fetchImpl: typeof fetch) {
+  const response = await fetchImpl(`${config.modelServiceUrl}/internal/models`);
+  return modelsResponseSchema.parse(await response.json());
+}
 
-app.get("/version", async () => ({
-  service: "api-gateway",
-  version: "0.1.0",
-  contractVersion: "v1"
-}));
+export function createApp(options: CreateAppOptions = {}): FastifyInstance {
+  const config = options.config ?? loadConfig();
+  const fetchImpl = options.fetchImpl ?? fetch;
 
-app.get("/api/models", async () => ({
-  models: [],
-  fetchedAt: new Date().toISOString()
-}));
+  const app = Fastify({
+    logger: true
+  });
 
-app.get("/api/sessions", async () => ({
-  sessions: []
-}));
+  void app.register(cors, { origin: true });
 
-app.listen({ host: "0.0.0.0", port });
+  app.get("/health", async () => ({
+    status: "ok",
+    service: "api-gateway",
+    version: "0.1.0"
+  }));
 
+  app.get("/version", async () => ({
+    service: "api-gateway",
+    version: "0.1.0",
+    contractVersion: "v1"
+  }));
+
+  app.get("/api/models", async () => fetchModels(config, fetchImpl));
+
+  app.get("/api/sessions", async () => ({
+    sessions: []
+  }));
+
+  return app;
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const app = createApp();
+  const config = loadConfig();
+  app.listen({ host: "0.0.0.0", port: config.port });
+}

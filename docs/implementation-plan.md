@@ -6,41 +6,47 @@ Build the thinnest end-to-end slice first, then harden around it.
 
 ## Phase 0: Project Bootstrap
 
+Status:
+In progress.
+
 ### Goals
 
-- Initialize repository structure.
-- Stand up frontend and microservice dev shells.
-- Add Docker and Docker Compose.
-- Add shared linting, formatting, and TypeScript baseline.
-- Add shared contracts package.
-- Add per-service `AGENTS.md`, `README.md`, Dockerfile, and `.env.example`.
+- [x] Initialize repository structure.
+- [x] Stand up frontend and microservice dev shells.
+- [x] Add Docker and Docker Compose.
+- [x] Add shared linting, formatting, and TypeScript baseline.
+- [x] Add shared contracts package.
+- [x] Add per-service `AGENTS.md`, `README.md`, Dockerfile, and `.env.example`.
 
 ### Exit Criteria
 
-- `docker compose up` starts frontend and all planned service containers.
-- Frontend can call gateway health endpoint.
-- Each service responds on `/health`.
+- [ ] `docker compose up` starts frontend and all planned service containers.
+- [ ] Frontend can call gateway health endpoint.
+- [x] Each service responds on `/health`.
 
 ## Phase 1: Chat Skeleton
 
+Status:
+In progress.
+
 ### Goals
 
-- Basic chat page layout.
-- Multi-line input composer.
-- Session-local transcript rendering.
-- API gateway to model and session services.
+- [x] Basic chat page layout.
+- [x] Multi-line input composer.
+- [x] Session-local transcript rendering.
+- [ ] API gateway to model and session services.
 
 ### Tasks
 
-- Create shell UI and chat state.
-- Add per-service config loading.
-- Implement `GET /api/models` through gateway and model service.
-- Implement `GET /api/sessions`.
-- Implement `GET /api/health`.
+- [ ] Create shell UI and chat state.
+- [ ] Add per-service config loading.
+- [x] Implement `GET /api/models` through gateway and model service.
+- [ ] Implement `GET /api/sessions`.
+- [ ] Implement `GET /api/health`.
 
 ### Exit Criteria
 
-- User can load the app and choose a discovered model.
+- [x] User can load the app and choose a discovered model.
 
 ## Phase 2: Streaming Chat
 
@@ -143,11 +149,11 @@ Build the thinnest end-to-end slice first, then harden around it.
 
 ## Suggested Initial Backlog
 
-1. Scaffold repo and Docker Compose.
-2. Add backend config/env loading.
-3. Add models endpoint and UI selector.
-4. Implement streamed chat relay.
-5. Implement transcript rendering with thinking/final separation.
-6. Add settings/options screen.
-7. Add metrics panel placeholder and adapter.
-8. Add tests and UX polish.
+1. [x] Scaffold repo and Docker Compose.
+2. [ ] Add backend config/env loading.
+3. [x] Add models endpoint and UI selector.
+4. [ ] Implement streamed chat relay.
+5. [ ] Implement transcript rendering with thinking/final separation.
+6. [ ] Add settings/options screen.
+7. [ ] Add metrics panel placeholder and adapter.
+8. [ ] Add tests and UX polish.

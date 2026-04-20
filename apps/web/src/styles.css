@@ -68,6 +68,20 @@ textarea {
   gap: 12px;
 }
 
+.model-select-label {
+  display: grid;
+  gap: 6px;
+}
+
+.model-select {
+  min-width: 180px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  padding: 10px 12px;
+}
+
 .eyebrow {
   margin: 0 0 6px;
   color: #efab73;
@@ -202,4 +216,3 @@ ul {
     border: 0;
   }
 }
-
