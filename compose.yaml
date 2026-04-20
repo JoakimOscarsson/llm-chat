@@ -1,0 +1,50 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "3000:3000"
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    ports:
+      - "4000:4000"
+
+  chat-service:
+    build:
+      context: .
+      dockerfile: services/chat-service/Dockerfile
+    ports:
+      - "4001:4001"
+
+  model-service:
+    build:
+      context: .
+      dockerfile: services/model-service/Dockerfile
+    ports:
+      - "4002:4002"
+
+  session-service:
+    build:
+      context: .
+      dockerfile: services/session-service/Dockerfile
+    ports:
+      - "4003:4003"
+
+  metrics-service:
+    build:
+      context: .
+      dockerfile: services/metrics-service/Dockerfile
+    ports:
+      - "4004:4004"
+
+  ollama-adapter:
+    build:
+      context: .
+      dockerfile: services/ollama-adapter/Dockerfile
+    ports:
+      - "4005:4005"
+
