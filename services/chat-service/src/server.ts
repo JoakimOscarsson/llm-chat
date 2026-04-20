@@ -1,36 +1,70 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
+import { fileURLToPath } from "node:url";
 
-const port = Number(process.env.PORT ?? 4001);
+export type ChatServiceConfig = {
+  port: number;
+  sessionServiceUrl: string;
+  ollamaAdapterUrl: string;
+};
 
-const app = Fastify({
-  logger: true
-});
+type CreateAppOptions = {
+  config?: ChatServiceConfig;
+  fetchImpl?: typeof fetch;
+};
 
-app.get("/health", async () => ({
-  status: "ok",
-  service: "chat-service",
-  version: "0.1.0"
-}));
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): ChatServiceConfig {
+  return {
+    port: Number(env.PORT ?? 4001),
+    sessionServiceUrl: env.SESSION_SERVICE_URL ?? "http://session-service:4003",
+    ollamaAdapterUrl: env.OLLAMA_ADAPTER_URL ?? "http://ollama-adapter:4005"
+  };
+}
 
-app.get("/version", async () => ({
-  service: "chat-service",
-  version: "0.1.0",
-  contractVersion: "v1"
-}));
+export function createApp(options: CreateAppOptions = {}): FastifyInstance {
+  const config = options.config ?? loadConfig();
+  const fetchImpl = options.fetchImpl ?? fetch;
 
-app.post("/internal/chat/stream", async (_request, reply) => {
-  reply.header("content-type", "text/event-stream");
-  reply.raw.write('event: meta\n');
-  reply.raw.write(`data: ${JSON.stringify({ requestId: "stub-request", model: "stub-model" })}\n\n`);
-  reply.raw.write('event: done\n');
-  reply.raw.write(`data: ${JSON.stringify({ finishReason: "stub" })}\n\n`);
-  reply.raw.end();
-  return reply;
-});
+  const app = Fastify({
+    logger: true
+  });
 
-app.post("/internal/chat/stop", async () => ({
-  stopped: true
-}));
+  app.get("/health", async () => ({
+    status: "ok",
+    service: "chat-service",
+    version: "0.1.0"
+  }));
 
-app.listen({ host: "0.0.0.0", port });
+  app.get("/version", async () => ({
+    service: "chat-service",
+    version: "0.1.0",
+    contractVersion: "v1"
+  }));
 
+  app.post("/internal/chat/stream", async (request, reply) => {
+    const upstream = await fetchImpl(`${config.ollamaAdapterUrl}/internal/provider/chat/stream`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(request.body ?? {})
+    });
+
+    reply.header("content-type", "text/event-stream");
+    const text = await upstream.text();
+    reply.raw.write(text);
+    reply.raw.end();
+    return reply;
+  });
+
+  app.post("/internal/chat/stop", async () => ({
+    stopped: true
+  }));
+
+  return app;
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const app = createApp();
+  const config = loadConfig();
+  void app.listen({ host: "0.0.0.0", port: config.port });
+}

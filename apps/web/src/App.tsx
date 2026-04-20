@@ -31,6 +31,9 @@ export function App() {
   const [selectedModel, setSelectedModel] = useState("");
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [prompt, setPrompt] = useState("");
+  const [liveThinking, setLiveThinking] = useState("Waiting for stream events...");
+  const [assistantResponse, setAssistantResponse] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -61,6 +64,42 @@ export function App() {
       active = false;
     };
   }, []);
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    setLiveThinking("");
+    setAssistantResponse("");
+
+    const response = await fetch(`${apiBaseUrl}/api/chat/stream`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        model: selectedModel,
+        message: prompt
+      })
+    });
+
+    const text = await response.text();
+    const events = text.split("\n\n").filter(Boolean);
+
+    for (const eventBlock of events) {
+      const lines = eventBlock.split("\n");
+      const eventName = lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
+      const dataLine = lines.find((line) => line.startsWith("data:"))?.slice(5).trim();
+      const payload = dataLine ? (JSON.parse(dataLine) as { text?: string }) : {};
+
+      if (eventName === "thinking_delta") {
+        setLiveThinking((current) => `${current}${payload.text ?? ""}`);
+      }
+
+      if (eventName === "response_delta") {
+        setAssistantResponse((current) => `${current}${payload.text ?? ""}`);
+      }
+    }
+  };
 
   return (
     <div className="app-shell">
@@ -115,7 +154,7 @@ export function App() {
 
         <section className="thinking-panel">
           <p className="eyebrow">Live thinking</p>
-          <div className="thinking-box">Waiting for stream events...</div>
+          <div className="thinking-box">{liveThinking || "Waiting for stream events..."}</div>
         </section>
 
         <section className="transcript">
@@ -132,14 +171,25 @@ export function App() {
               service, a metrics service, and an Ollama adapter.
             </p>
           </article>
+          {assistantResponse ? (
+            <article className="message assistant-message">
+              <details>
+                <summary>Thinking trace</summary>
+                <p>{liveThinking}</p>
+              </details>
+              <p>{assistantResponse}</p>
+            </article>
+          ) : null}
         </section>
 
-        <form className="composer">
+        <form className="composer" onSubmit={handleSubmit}>
           <textarea
             aria-label="Prompt"
             className="composer-input"
             placeholder="Send a message to the model..."
             rows={6}
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
           />
           <div className="composer-actions">
             <div className="status-line">

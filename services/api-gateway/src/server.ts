@@ -79,6 +79,22 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
 
   app.get("/api/sessions", async () => fetchSessions(config, fetchImpl));
 
+  app.post("/api/chat/stream", async (request, reply) => {
+    const upstream = await fetchImpl(`${config.chatServiceUrl}/internal/chat/stream`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(request.body ?? {})
+    });
+
+    reply.header("content-type", "text/event-stream");
+    const text = await upstream.text();
+    reply.raw.write(text);
+    reply.raw.end();
+    return reply;
+  });
+
   return app;
 }
 

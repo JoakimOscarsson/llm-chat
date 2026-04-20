@@ -86,8 +86,12 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
 
   app.post("/internal/provider/chat/stream", async (_request, reply) => {
     reply.header("content-type", "text/event-stream");
-    reply.raw.write("event: provider_meta\n");
-    reply.raw.write(`data: ${JSON.stringify({ provider: "ollama", requestId: "stub-request" })}\n\n`);
+    reply.raw.write("event: meta\n");
+    reply.raw.write(`data: ${JSON.stringify({ requestId: "stub-request", model: "llama3.1:8b" })}\n\n`);
+    reply.raw.write("event: thinking_delta\n");
+    reply.raw.write(`data: ${JSON.stringify({ text: "Thinking..." })}\n\n`);
+    reply.raw.write("event: response_delta\n");
+    reply.raw.write(`data: ${JSON.stringify({ text: "Hello there" })}\n\n`);
     reply.raw.write("event: done\n");
     reply.raw.write(`data: ${JSON.stringify({ finishReason: "stub" })}\n\n`);
     reply.raw.end();

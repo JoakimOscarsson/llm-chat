@@ -142,3 +142,57 @@ test("GET /api/health aggregates downstream service health", async () => {
     }
   });
 });
+
+test("POST /api/chat/stream relays chat-service stream events", async () => {
+  const streamBody = [
+    "event: meta",
+    'data: {"requestId":"req_1","model":"llama3.1:8b"}',
+    "",
+    "event: thinking_delta",
+    'data: {"text":"Thinking..."}',
+    "",
+    "event: response_delta",
+    'data: {"text":"Hello there"}',
+    "",
+    "event: done",
+    'data: {"finishReason":"stop"}',
+    "",
+    ""
+  ].join("\n");
+
+  const app = createApp({
+    config: {
+      port: 4000,
+      chatServiceUrl: "http://chat-service:4001",
+      modelServiceUrl: "http://model-service:4002",
+      sessionServiceUrl: "http://session-service:4003",
+      metricsServiceUrl: "http://metrics-service:4004"
+    },
+    fetchImpl: async (input, init) => {
+      if (String(input) === "http://chat-service:4001/internal/chat/stream") {
+        assert.equal(init?.method, "POST");
+
+        return new Response(streamBody, {
+          headers: {
+            "content-type": "text/event-stream"
+          }
+        });
+      }
+
+      throw new Error(`Unexpected url: ${String(input)}`);
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/chat/stream",
+    payload: {
+      model: "llama3.1:8b",
+      message: "Hello"
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /event: thinking_delta/);
+  assert.match(response.body, /event: response_delta/);
+});
