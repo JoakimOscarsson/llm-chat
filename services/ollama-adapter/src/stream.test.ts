@@ -174,3 +174,73 @@ test("POST /internal/provider/chat/stream includes model details in upstream err
   assert.match(response.body, /model not found/);
   assert.match(response.body, /"status":404/);
 });
+
+test("POST /internal/provider/chat/stream falls back when thinking is unsupported", async () => {
+  const upstreamBody = [
+    JSON.stringify({
+      model: "llama3.2:3b",
+      message: {
+        role: "assistant",
+        content: "Plain response."
+      },
+      done: false
+    }),
+    JSON.stringify({
+      model: "llama3.2:3b",
+      done: true,
+      done_reason: "stop"
+    })
+  ].join("\n");
+
+  const requestBodies: string[] = [];
+
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false
+    },
+    fetchImpl: async (_input, init) => {
+      requestBodies.push(String(init?.body ?? ""));
+
+      if (requestBodies.length === 1) {
+        return new Response("thinking not supported for this model", {
+          status: 400,
+          headers: {
+            "content-type": "text/plain"
+          }
+        });
+      }
+
+      return new Response(upstreamBody, {
+        headers: {
+          "content-type": "application/x-ndjson"
+        }
+      });
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_retry",
+      model: "llama3.2:3b",
+      messages: [{ role: "user", content: "Hello" }],
+      streamThinking: true
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(requestBodies.length, 2);
+  assert.match(requestBodies[0] ?? "", /"think":true/);
+  assert.doesNotMatch(requestBodies[1] ?? "", /"think":true/);
+  assert.match(response.body, /event: thinking_unavailable/);
+  assert.match(response.body, /does not support thinking/);
+  assert.match(response.body, /event: response_delta/);
+  assert.match(response.body, /Plain response/);
+  assert.match(response.body, /event: done/);
+});

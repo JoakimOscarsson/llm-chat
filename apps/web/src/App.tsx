@@ -78,6 +78,18 @@ function appendToLatestAssistant(
   return nextMessages;
 }
 
+function latestAssistantHasThinking(messages: ChatMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+
+    if (message?.role === "assistant") {
+      return Boolean(message.thinking?.trim());
+    }
+  }
+
+  return false;
+}
+
 export function App() {
   const [models, setModels] = useState<ModelSummary[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
@@ -144,10 +156,36 @@ export function App() {
     if (eventName === "response_delta") {
       const nextText = payload.text ?? "";
       setStatusText("Streaming answer...");
+      setLiveThinking((current) =>
+        current === "Connecting to model..." || current.startsWith("Waiting for ")
+          ? "This model does not stream a separate thinking trace."
+          : current
+      );
+      setMessages((current) => {
+        const nextMessages = appendToLatestAssistant(current, (message) => ({
+          ...message,
+          content: `${message.content}${nextText}`
+        }));
+
+        if (latestAssistantHasThinking(nextMessages)) {
+          return nextMessages;
+        }
+
+        return appendToLatestAssistant(nextMessages, (message) => ({
+          ...message,
+          thinking: message.thinking?.trim() ? message.thinking : "This model does not stream a separate thinking trace."
+        }));
+      });
+    }
+
+    if (eventName === "thinking_unavailable") {
+      const notice = payload.text ?? "This model does not stream a separate thinking trace.";
+      setLiveThinking(notice);
+      setStatusText("Streaming answer...");
       setMessages((current) =>
         appendToLatestAssistant(current, (message) => ({
           ...message,
-          content: `${message.content}${nextText}`
+          thinking: message.thinking?.trim() ? message.thinking : notice
         }))
       );
     }

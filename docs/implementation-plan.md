@@ -120,6 +120,7 @@ Completed.
 - Add tests for payload shaping and stream parsing.
 - [x] Add loading and error states.
 - [x] Improve keyboard submit behavior for the composer.
+- [x] Gracefully handle non-thinking models while continuing to stream answers.
 - Improve keyboard and screen-reader support.
 - Add export/copy/regenerate quality-of-life features if time allows.
 

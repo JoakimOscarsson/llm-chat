@@ -16,6 +16,55 @@ type CreateAppOptions = {
   fetchImpl?: typeof fetch;
 };
 
+type ChatPayload = {
+  requestId?: string;
+  model?: string;
+  messages?: Array<{ role: string; content: string }>;
+  options?: Record<string, unknown>;
+  streamThinking?: boolean;
+  think?: boolean | string;
+  keep_alive?: string | number;
+};
+
+function thinkingUnsupported(errorText: string, status: number) {
+  if (status < 400) {
+    return false;
+  }
+
+  return /(think|thinking).*(unsupported|not supported|unknown|invalid)|unsupported.*(think|thinking)/i.test(errorText);
+}
+
+async function fetchChatStream(
+  config: OllamaAdapterConfig,
+  fetchImpl: typeof fetch,
+  abortSignal: AbortSignal,
+  payload: ChatPayload,
+  includeThink: boolean
+) {
+  const body: Record<string, unknown> = {
+    model: payload.model ?? "llama3.1:8b",
+    messages: payload.messages ?? [],
+    options: payload.options ?? {},
+    keep_alive: payload.keep_alive,
+    stream: true
+  };
+
+  if (includeThink) {
+    body.think = payload.think ?? payload.streamThinking ?? true;
+  }
+
+  return fetchImpl(`${config.ollamaBaseUrl}/api/chat`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "CF-Access-Client-Id": config.cfAccessClientId,
+      "CF-Access-Client-Secret": config.cfAccessClientSecret
+    },
+    body: JSON.stringify(body),
+    signal: abortSignal
+  });
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): OllamaAdapterConfig {
   return {
     port: Number(env.PORT ?? 4005),
@@ -86,15 +135,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   app.get("/internal/provider/models", async () => fetchModels(config, fetchImpl));
 
   app.post("/internal/provider/chat/stream", async (request, reply) => {
-    const payload = (request.body ?? {}) as {
-      requestId?: string;
-      model?: string;
-      messages?: Array<{ role: string; content: string }>;
-      options?: Record<string, unknown>;
-      streamThinking?: boolean;
-      think?: boolean | string;
-      keep_alive?: string | number;
-    };
+    const payload = (request.body ?? {}) as ChatPayload;
     const requestId = payload.requestId ?? "stub-request";
     const model = payload.model ?? "llama3.1:8b";
 
@@ -123,23 +164,35 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     });
 
     try {
-      const upstream = await fetchImpl(`${config.ollamaBaseUrl}/api/chat`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "CF-Access-Client-Id": config.cfAccessClientId,
-          "CF-Access-Client-Secret": config.cfAccessClientSecret
-        },
-        body: JSON.stringify({
-          model,
-          messages: payload.messages ?? [],
-          options: payload.options ?? {},
-          think: payload.think ?? payload.streamThinking ?? true,
-          keep_alive: payload.keep_alive,
-          stream: true
-        }),
-        signal: abortController.signal
-      });
+      let upstream = await fetchChatStream(config, fetchImpl, abortController.signal, payload, true);
+
+      if (!upstream.ok || !upstream.body) {
+        const errorText = await upstream.text();
+
+        if ((payload.streamThinking ?? true) && thinkingUnsupported(errorText, upstream.status)) {
+          reply.raw.write("event: thinking_unavailable\n");
+          reply.raw.write(
+            `data: ${JSON.stringify({
+              requestId,
+              model,
+              text: "This model does not support thinking. Streaming the answer without it."
+            })}\n\n`
+          );
+          upstream = await fetchChatStream(config, fetchImpl, abortController.signal, payload, false);
+        } else {
+          reply.raw.write("event: error\n");
+          reply.raw.write(
+            `data: ${JSON.stringify({
+              requestId,
+              model,
+              message: errorText || `Ollama upstream returned ${upstream.status}`,
+              status: upstream.status
+            })}\n\n`
+          );
+          reply.raw.end();
+          return reply;
+        }
+      }
 
       if (!upstream.ok || !upstream.body) {
         const errorText = await upstream.text();
