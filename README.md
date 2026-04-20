@@ -20,3 +20,7 @@ This repository is scaffolded but dependencies are not yet installed in this ste
 
 Read [docs/interface-spec.md](/Users/joakim/Documents/codex/llm-chat-app/docs/interface-spec.md:1) before implementing features.
 
+## Local Validation
+
+- `npm run ci:docker`: runs the same Docker-based validation path as GitHub Actions.
+- `npm run hooks:install`: installs the repository-managed Git hooks, including `pre-push`.
