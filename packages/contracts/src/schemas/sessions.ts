@@ -55,6 +55,11 @@ export const sessionResponseSchema = z.object({
   session: sessionSchema
 });
 
+export const createSessionRequestSchema = z.object({
+  title: z.string().min(1).default("New chat"),
+  model: z.string().min(1)
+});
+
 export const messagePersistRequestSchema = z.object({
   message: chatMessageSchema
 });

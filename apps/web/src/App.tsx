@@ -80,6 +80,32 @@ type HealthResponse = {
   };
 };
 
+type MetricsResponse =
+  | {
+      status: "ok";
+      sampledAt: string;
+      gpu: {
+        usedMb: number;
+        totalMb: number;
+        utilizationPct: number;
+      };
+    }
+  | {
+      status: "stale";
+      sampledAt: string;
+      reason: string;
+      gpu: {
+        usedMb: number;
+        totalMb: number;
+        utilizationPct: number;
+      };
+    }
+  | {
+      status: "unavailable";
+      sampledAt: string;
+      reason: string;
+    };
+
 type StreamEventPayload = {
   requestId?: string;
   text?: string;
@@ -207,6 +233,7 @@ export function App() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [metrics, setMetrics] = useState<MetricsResponse | null>(null);
   const [defaults, setDefaults] = useState<AppDefaults>(fallbackDefaults);
   const [defaultSystemPrompt, setDefaultSystemPrompt] = useState(fallbackDefaults.systemPrompt);
   const [defaultRequestHistoryCount, setDefaultRequestHistoryCount] = useState(String(fallbackDefaults.requestHistoryCount));
@@ -252,6 +279,23 @@ export function App() {
     const modelsPayload = (await modelsResponse.json()) as { models: ModelSummary[] };
     setModels(modelsPayload.models);
     return modelsPayload.models;
+  };
+
+  const loadMetrics = async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/metrics/gpu`);
+      const payload = (await response.json()) as MetricsResponse;
+      setMetrics(payload);
+      return payload;
+    } catch {
+      const fallback: MetricsResponse = {
+        status: "unavailable",
+        sampledAt: new Date().toISOString(),
+        reason: "request_failed"
+      };
+      setMetrics(fallback);
+      return fallback;
+    }
   };
 
   const loadSessionDetail = async (sessionId: string) => {
@@ -300,10 +344,11 @@ export function App() {
     let active = true;
 
     const loadData = async () => {
-      const [modelsPayload, sessionsResponse, healthResponse] = await Promise.all([
+      const [modelsPayload, sessionsResponse, healthResponse, metricsPayload] = await Promise.all([
         loadModels(),
         fetch(`${apiBaseUrl}/api/sessions`),
-        fetch(`${apiBaseUrl}/api/health`)
+        fetch(`${apiBaseUrl}/api/health`),
+        loadMetrics()
       ]);
       const sessionsPayload = (await sessionsResponse.json()) as { sessions: SessionSummary[] };
       const healthPayload = (await healthResponse.json()) as HealthResponse;
@@ -314,6 +359,7 @@ export function App() {
 
       setSessions(sessionsPayload.sessions);
       setHealth(healthPayload);
+      setMetrics(metricsPayload);
       setSelectedSessionId((current) => current ?? sessionsPayload.sessions[0]?.id ?? null);
       setSelectedModel((current) => current || sessionsPayload.sessions[0]?.model || modelsPayload[0]?.name || "");
 
@@ -350,8 +396,17 @@ export function App() {
 
     void loadData();
 
+    const interval = setInterval(() => {
+      if (!active) {
+        return;
+      }
+
+      void loadMetrics();
+    }, 30_000);
+
     return () => {
       active = false;
+      clearInterval(interval);
     };
   }, []);
 
@@ -608,6 +663,43 @@ export function App() {
     setSelectedModel((current) => current || refreshedModels[0]?.name || "");
   };
 
+  const handleCreateSession = async () => {
+    const model = selectedModel || models[0]?.name;
+
+    if (!model) {
+      return;
+    }
+
+    const response = await fetch(`${apiBaseUrl}/api/sessions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        title: "New chat",
+        model
+      })
+    });
+    const payload = (await response.json()) as { session: SessionDetail };
+
+    setSessions((current) => [
+      {
+        id: payload.session.id,
+        title: payload.session.title,
+        model: payload.session.model,
+        updatedAt: payload.session.updatedAt
+      },
+      ...current
+    ]);
+    setSelectedSessionId(payload.session.id);
+    setActiveSession(payload.session);
+    setSelectedModel(payload.session.model);
+    setMessages([]);
+    setPrompt("");
+    setLiveThinking("Ready for the next prompt.");
+    setStatusText("New session ready");
+  };
+
   const handleSaveDefaults = async () => {
     setDefaultsStatus("Saving defaults...");
 
@@ -779,7 +871,7 @@ export function App() {
           <p className="eyebrow">Sessions</p>
           <h1>LLM Chat</h1>
         </div>
-        <button className="primary-button" type="button">
+        <button className="primary-button" type="button" onClick={() => void handleCreateSession()}>
           New session
         </button>
         <div className="session-list">
@@ -1030,9 +1122,31 @@ export function App() {
         <section className="widget">
           <p className="eyebrow">GPU VRAM</p>
           <div className="meter">
-            <div className="meter-bar" style={{ width: "68%" }} />
+            <div
+              className={`meter-bar ${metrics?.status === "stale" ? "stale" : ""}`}
+              style={{
+                width:
+                  metrics?.status === "ok" || metrics?.status === "stale"
+                    ? `${Math.min(100, Math.max(0, metrics.gpu.utilizationPct))}%`
+                    : "0%"
+              }}
+            />
           </div>
-          <small>11.2 GB / 16 GB</small>
+          {metrics?.status === "ok" || metrics?.status === "stale" ? (
+            <>
+              <small>
+                {metrics.gpu.usedMb.toFixed(0)} MB / {metrics.gpu.totalMb.toFixed(0)} MB
+              </small>
+              <small className="panel-subtitle">
+                {metrics.status === "stale" ? "Metrics are stale" : "Metrics are current"} · sampled {metrics.sampledAt}
+              </small>
+            </>
+          ) : (
+            <>
+              <small>Metrics unavailable</small>
+              <small className="panel-subtitle">Reason: {metrics?.reason ?? "loading"}</small>
+            </>
+          )}
         </section>
       </aside>
     </div>

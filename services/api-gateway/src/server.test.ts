@@ -97,6 +97,57 @@ test("GET /api/sessions proxies the session service response", async () => {
   ]);
 });
 
+test("POST /api/sessions proxies session creation", async () => {
+  let forwardedBody = "";
+
+  const app = createApp({
+    config: {
+      port: 4000,
+      chatServiceUrl: "http://chat-service:4001",
+      modelServiceUrl: "http://model-service:4002",
+      sessionServiceUrl: "http://session-service:4003",
+      metricsServiceUrl: "http://metrics-service:4004"
+    },
+    fetchImpl: async (input, init) => {
+      assert.equal(String(input), "http://session-service:4003/internal/sessions");
+      assert.equal(init?.method, "POST");
+      forwardedBody = String(init?.body ?? "");
+
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_2",
+            title: "Fresh thread",
+            model: "qwen2.5-coder:7b",
+            createdAt: "2026-04-20T18:00:01.000Z",
+            updatedAt: "2026-04-20T18:00:01.000Z",
+            messages: [],
+            overrides: {}
+          }
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/sessions",
+    payload: {
+      title: "Fresh thread",
+      model: "qwen2.5-coder:7b"
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(forwardedBody, /"title":"Fresh thread"/);
+  assert.equal(response.json().session.id, "sess_2");
+});
+
 test("GET /api/settings/defaults proxies the session service defaults", async () => {
   const app = createApp({
     config: {
@@ -342,6 +393,48 @@ test("GET /api/health aggregates downstream service health", async () => {
       metricsService: "ok"
     }
   });
+});
+
+test("GET /api/metrics/gpu proxies the metrics service response", async () => {
+  const app = createApp({
+    config: {
+      port: 4000,
+      chatServiceUrl: "http://chat-service:4001",
+      modelServiceUrl: "http://model-service:4002",
+      sessionServiceUrl: "http://session-service:4003",
+      metricsServiceUrl: "http://metrics-service:4004"
+    },
+    fetchImpl: async (input) => {
+      assert.equal(String(input), "http://metrics-service:4004/internal/metrics/gpu");
+
+      return new Response(
+        JSON.stringify({
+          status: "stale",
+          sampledAt: "2026-04-20T18:00:00.000Z",
+          reason: "stale_sample",
+          gpu: {
+            usedMb: 8192,
+            totalMb: 16384,
+            utilizationPct: 50
+          }
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/metrics/gpu"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().status, "stale");
+  assert.equal(response.json().gpu.usedMb, 8192);
 });
 
 test("POST /api/chat/stream relays chat-service stream events", async () => {

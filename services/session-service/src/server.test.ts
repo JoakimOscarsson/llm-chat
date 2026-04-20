@@ -21,6 +21,24 @@ test("GET /internal/sessions returns session summaries", async () => {
   ]);
 });
 
+test("POST /internal/sessions creates a new empty session", async () => {
+  const app = createApp();
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/internal/sessions",
+    payload: {
+      title: "Fresh thread",
+      model: "qwen2.5-coder:7b"
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().session.title, "Fresh thread");
+  assert.equal(response.json().session.model, "qwen2.5-coder:7b");
+  assert.deepEqual(response.json().session.messages, []);
+});
+
 test("GET /internal/settings/defaults returns app defaults", async () => {
   const app = createApp();
 

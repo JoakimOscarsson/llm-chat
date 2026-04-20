@@ -8,10 +8,11 @@
     "dev": "tsx watch src/server.ts",
     "lint": "echo \"lint not configured yet\"",
     "start": "node dist/server.js",
-    "test": "echo \"tests not configured yet\"",
+    "test": "tsx --test src/**/*.test.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@llm-chat-app/contracts": "workspace:*",
     "fastify": "^5.2.1"
   },
   "devDependencies": {
@@ -21,4 +22,3 @@
     "typescript": "^5.7.3"
   }
 }
-

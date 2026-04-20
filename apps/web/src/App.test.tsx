@@ -77,6 +77,21 @@ test("renders discovered models from the gateway", async () => {
       );
     }
 
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+
     throw new Error(`Unhandled fetch for ${url}`);
   });
 
@@ -126,6 +141,22 @@ test("loads and saves app defaults and session overrides", async () => {
           status: "ok",
           service: "api-gateway",
           dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "stale",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "stale_sample",
+          gpu: {
+            usedMb: 8192,
+            totalMb: 16384,
+            utilizationPct: 50
+          }
         }),
         { headers: { "content-type": "application/json" } }
       );
@@ -245,6 +276,128 @@ test("loads and saves app defaults and session overrides", async () => {
   expect(requests.find((request) => request.url.endsWith("/api/sessions/sess_1"))?.body).toContain('"requestHistoryCount":2');
 });
 
+test("creates a new session from the active model", async () => {
+  const requests: Array<{ url: string; body: string }> = [];
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [{ name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 }],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      if (init?.method === "POST") {
+        requests.push({ url, body: String(init.body ?? "") });
+        return new Response(
+          JSON.stringify({
+            session: {
+              id: "sess_2",
+              title: "New chat",
+              model: "llama3.1:8b",
+              createdAt: "2026-04-20T18:04:00.000Z",
+              updatedAt: "2026-04-20T18:04:00.000Z",
+              messages: [],
+              overrides: {}
+            }
+          }),
+          { headers: { "content-type": "application/json" } }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          sessions: [{ id: "sess_1", title: "Existing chat", model: "llama3.1:8b", updatedAt: "2026-04-20T18:03:00Z" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/settings/defaults")) {
+      return new Response(
+        JSON.stringify({
+          defaults: {
+            systemPrompt: "Use markdown.",
+            requestHistoryCount: 4,
+            responseHistoryCount: 3,
+            streamThinking: true,
+            persistSessions: true,
+            options: {
+              temperature: 0.4,
+              top_k: 40,
+              top_p: 0.9,
+              repeat_penalty: 1.05,
+              num_ctx: 4096,
+              num_predict: 256,
+              stop: []
+            }
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1") || url.endsWith("/api/sessions/sess_2")) {
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: url.endsWith("sess_2") ? "sess_2" : "sess_1",
+            title: url.endsWith("sess_2") ? "New chat" : "Existing chat",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:04:00.000Z",
+            messages: [],
+            overrides: {}
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  await screen.findByRole("button", { name: /existing chat/i });
+  fireEvent.click(screen.getByRole("button", { name: "New session" }));
+
+  await waitFor(() => {
+    expect(requests.some((request) => request.url.endsWith("/api/sessions"))).toBe(true);
+  });
+
+  expect(requests[0]?.body).toContain('"model":"llama3.1:8b"');
+  expect(screen.getByText("New session ready")).toBeInTheDocument();
+});
+
 test("clears transcript history for the active session", async () => {
   const requests: string[] = [];
 
@@ -276,6 +429,17 @@ test("clears transcript history for the active session", async () => {
           status: "ok",
           service: "api-gateway",
           dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
         }),
         { headers: { "content-type": "application/json" } }
       );
@@ -421,6 +585,17 @@ test("streams thinking and markdown response into the UI as chunks arrive", asyn
       );
     }
 
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
     if (url.endsWith("/api/chat/stream")) {
       expect(init?.method).toBe("POST");
       return new Response(
@@ -527,6 +702,17 @@ test("uses the currently selected model and surfaces stream errors", async () =>
       );
     }
 
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
     if (url.endsWith("/api/chat/stream")) {
       chatRequests.push(String(init?.body ?? ""));
       return new Response(
@@ -622,6 +808,17 @@ test("shows a non-thinking notice while still streaming the response", async () 
           status: "ok",
           service: "api-gateway",
           dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
         }),
         { headers: { "content-type": "application/json" } }
       );
@@ -761,6 +958,17 @@ test("shows unsupported settings notices while continuing the response stream", 
       );
     }
 
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
     if (url.endsWith("/api/chat/stream")) {
       expect(init?.method).toBe("POST");
       return new Response(
@@ -848,6 +1056,17 @@ test("pressing Enter sends while Shift+Enter inserts a newline", async () => {
       );
     }
 
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
     if (url.endsWith("/api/chat/stream")) {
       chatRequests.push(String(init?.body ?? ""));
       return new Response('event: done\ndata: {"finishReason":"stop"}\n\n', {
@@ -923,6 +1142,17 @@ test("stops an in-flight stream and sends a stop request", async () => {
           status: "ok",
           service: "api-gateway",
           dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
         }),
         { headers: { "content-type": "application/json" } }
       );

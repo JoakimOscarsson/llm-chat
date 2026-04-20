@@ -3,6 +3,8 @@ import cors from "@fastify/cors";
 import { fileURLToPath } from "node:url";
 import {
   appDefaultsResponseSchema,
+  createSessionRequestSchema,
+  gpuMetricsResponseSchema,
   modelsResponseSchema,
   sessionResponseSchema,
   sessionsResponseSchema
@@ -89,6 +91,19 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
 
   app.get("/api/sessions", async () => fetchSessions(config, fetchImpl));
 
+  app.post("/api/sessions", async (request) => {
+    const payload = createSessionRequestSchema.parse(request.body ?? {});
+    const upstream = await fetchImpl(`${config.sessionServiceUrl}/internal/sessions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    return sessionResponseSchema.parse(await upstream.json());
+  });
+
   app.get("/api/settings/defaults", async () => fetchDefaults(config, fetchImpl));
 
   app.put("/api/settings/defaults", async (request) => {
@@ -120,6 +135,11 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     });
 
     return sessionResponseSchema.parse(await upstream.json());
+  });
+
+  app.get("/api/metrics/gpu", async () => {
+    const upstream = await fetchImpl(`${config.metricsServiceUrl}/internal/metrics/gpu`);
+    return gpuMetricsResponseSchema.parse(await upstream.json());
   });
 
   app.delete("/api/sessions/:sessionId/history", async (request) => {

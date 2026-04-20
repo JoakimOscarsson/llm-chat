@@ -4,6 +4,7 @@ import {
   appDefaultsResponseSchema,
   appDefaultsSchema,
   assistantResultPersistRequestSchema,
+  createSessionRequestSchema,
   messagePersistRequestSchema,
   sessionContextResponseSchema,
   sessionPatchSchema,
@@ -45,6 +46,7 @@ type CreateAppOptions = {
 };
 
 const fixedNow = "2026-04-20T18:00:00.000Z";
+const createdSessionNow = "2026-04-20T18:00:01.000Z";
 
 const initialDefaults: AppDefaults = {
   systemPrompt: "You are a concise, helpful assistant. Format responses with Markdown, short paragraphs, and lists when useful.",
@@ -167,6 +169,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   const config = options.config ?? loadConfig();
   let defaults = appDefaultsSchema.parse(initialDefaults);
   const sessionStore = new Map<string, SessionRecord>([[initialSession.id, structuredClone(initialSession)]]);
+  let nextSessionId = 2;
 
   const app = Fastify({
     logger: true
@@ -202,6 +205,24 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       }))
     })
   );
+
+  app.post("/internal/sessions", async (request) => {
+    const payload = createSessionRequestSchema.parse(request.body ?? {});
+    const session: SessionRecord = {
+      id: `sess_${nextSessionId}`,
+      title: payload.title,
+      model: payload.model,
+      createdAt: createdSessionNow,
+      updatedAt: createdSessionNow,
+      messages: [],
+      overrides: {}
+    };
+
+    nextSessionId += 1;
+    sessionStore.set(session.id, session);
+
+    return sessionResponseSchema.parse({ session });
+  });
 
   app.get("/internal/sessions/:sessionId", async (request, reply) => {
     const sessionId = (request.params as { sessionId: string }).sessionId;
