@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { fileURLToPath } from "node:url";
-import { modelsResponseSchema } from "@llm-chat-app/contracts";
+import { modelsResponseSchema, sessionsResponseSchema } from "@llm-chat-app/contracts";
 
 export type ApiGatewayConfig = {
   port: number;
@@ -31,6 +31,17 @@ async function fetchModels(config: ApiGatewayConfig, fetchImpl: typeof fetch) {
   return modelsResponseSchema.parse(await response.json());
 }
 
+async function fetchSessions(config: ApiGatewayConfig, fetchImpl: typeof fetch) {
+  const response = await fetchImpl(`${config.sessionServiceUrl}/internal/sessions`);
+  return sessionsResponseSchema.parse(await response.json());
+}
+
+async function fetchServiceStatus(url: string, fetchImpl: typeof fetch) {
+  const response = await fetchImpl(`${url}/health`);
+  const payload = (await response.json()) as { status?: string };
+  return payload.status === "ok" ? "ok" : "degraded";
+}
+
 export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   const config = options.config ?? loadConfig();
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -47,6 +58,17 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     version: "0.1.0"
   }));
 
+  app.get("/api/health", async () => ({
+    status: "ok",
+    service: "api-gateway",
+    dependencies: {
+      chatService: await fetchServiceStatus(config.chatServiceUrl, fetchImpl),
+      modelService: await fetchServiceStatus(config.modelServiceUrl, fetchImpl),
+      sessionService: await fetchServiceStatus(config.sessionServiceUrl, fetchImpl),
+      metricsService: await fetchServiceStatus(config.metricsServiceUrl, fetchImpl)
+    }
+  }));
+
   app.get("/version", async () => ({
     service: "api-gateway",
     version: "0.1.0",
@@ -55,9 +77,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
 
   app.get("/api/models", async () => fetchModels(config, fetchImpl));
 
-  app.get("/api/sessions", async () => ({
-    sessions: []
-  }));
+  app.get("/api/sessions", async () => fetchSessions(config, fetchImpl));
 
   return app;
 }

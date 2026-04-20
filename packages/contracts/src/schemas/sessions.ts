@@ -36,6 +36,10 @@ export const sessionSummarySchema = z.object({
   updatedAt: isoDateSchema
 });
 
+export const sessionsResponseSchema = z.object({
+  sessions: z.array(sessionSummarySchema)
+});
+
 export const sessionSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -45,4 +49,3 @@ export const sessionSchema = z.object({
   messages: z.array(chatMessageSchema).default([]),
   overrides: sessionOverridesSchema.optional()
 });
-

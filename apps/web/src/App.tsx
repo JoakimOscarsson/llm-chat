@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 
-const sessions = [{ id: "sess_1", title: "New chat", updatedAt: "Just now" }];
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
 type ModelSummary = {
@@ -9,26 +8,54 @@ type ModelSummary = {
   size: number;
 };
 
+type SessionSummary = {
+  id: string;
+  title: string;
+  model: string;
+  updatedAt: string;
+};
+
+type HealthResponse = {
+  status: string;
+  service: string;
+  dependencies: {
+    chatService: string;
+    modelService: string;
+    sessionService: string;
+    metricsService: string;
+  };
+};
+
 export function App() {
   const [models, setModels] = useState<ModelSummary[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [health, setHealth] = useState<HealthResponse | null>(null);
 
   useEffect(() => {
     let active = true;
 
-    const loadModels = async () => {
-      const response = await fetch(`${apiBaseUrl}/api/models`);
-      const payload = (await response.json()) as { models: ModelSummary[] };
+    const loadData = async () => {
+      const [modelsResponse, sessionsResponse, healthResponse] = await Promise.all([
+        fetch(`${apiBaseUrl}/api/models`),
+        fetch(`${apiBaseUrl}/api/sessions`),
+        fetch(`${apiBaseUrl}/api/health`)
+      ]);
+      const modelsPayload = (await modelsResponse.json()) as { models: ModelSummary[] };
+      const sessionsPayload = (await sessionsResponse.json()) as { sessions: SessionSummary[] };
+      const healthPayload = (await healthResponse.json()) as HealthResponse;
 
       if (!active) {
         return;
       }
 
-      setModels(payload.models);
-      setSelectedModel((current) => current || payload.models[0]?.name || "");
+      setModels(modelsPayload.models);
+      setSessions(sessionsPayload.sessions);
+      setHealth(healthPayload);
+      setSelectedModel((current) => current || modelsPayload.models[0]?.name || "");
     };
 
-    void loadModels();
+    void loadData();
 
     return () => {
       active = false;
@@ -116,8 +143,12 @@ export function App() {
           />
           <div className="composer-actions">
             <div className="status-line">
-              <span className="status-pill">Gateway ready</span>
-              <span className="status-pill muted">Metrics unavailable</span>
+              <span className="status-pill">
+                {health?.status === "ok" ? "Gateway ready" : "Gateway degraded"}
+              </span>
+              <span className="status-pill muted">
+                {health?.dependencies.metricsService === "ok" ? "Metrics ready" : "Metrics degraded"}
+              </span>
             </div>
             <button className="primary-button" type="submit">
               Send

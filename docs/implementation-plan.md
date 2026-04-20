@@ -34,15 +34,15 @@ In progress.
 - [x] Basic chat page layout.
 - [x] Multi-line input composer.
 - [x] Session-local transcript rendering.
-- [ ] API gateway to model and session services.
+- [x] API gateway to model and session services.
 
 ### Tasks
 
-- [ ] Create shell UI and chat state.
-- [ ] Add per-service config loading.
+- [x] Create shell UI and chat state.
+- [x] Add per-service config loading.
 - [x] Implement `GET /api/models` through gateway and model service.
-- [ ] Implement `GET /api/sessions`.
-- [ ] Implement `GET /api/health`.
+- [x] Implement `GET /api/sessions`.
+- [x] Implement `GET /api/health`.
 
 ### Exit Criteria
 
