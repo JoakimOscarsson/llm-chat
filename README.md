@@ -26,3 +26,24 @@ Read [docs/interface-spec.md](/Users/joakim/Documents/codex/llm-chat-app/docs/in
 - `npm run ci:docker:validate`: runs the main lint/typecheck/test/build container.
 - `npm run ci:docker:static-analysis`: runs the static-analysis container.
 - `npm run hooks:install`: installs the repository-managed Git hooks, including `pre-push`.
+
+## Local App Run
+
+Use the current shell locally with:
+
+```bash
+docker compose up --build
+```
+
+Then open [http://localhost:3000](http://localhost:3000).
+
+If one of the default ports is already in use on your machine, override it inline. Example:
+
+```bash
+WEB_PORT=3001 docker compose up --build
+```
+
+Notes:
+
+- The current local compose setup uses a stub model list from `ollama-adapter` so you can try the Phase 1 shell without a live Ollama backend.
+- Streaming chat is not wired yet, so this is currently a clickable shell for models, sessions, and health status.

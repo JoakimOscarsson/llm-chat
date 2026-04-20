@@ -7,7 +7,7 @@ Build the thinnest end-to-end slice first, then harden around it.
 ## Phase 0: Project Bootstrap
 
 Status:
-In progress.
+Completed.
 
 ### Goals
 
@@ -20,8 +20,8 @@ In progress.
 
 ### Exit Criteria
 
-- [ ] `docker compose up` starts frontend and all planned service containers.
-- [ ] Frontend can call gateway health endpoint.
+- [x] `docker compose up` starts frontend and all planned service containers.
+- [x] Frontend can call gateway health endpoint.
 - [x] Each service responds on `/health`.
 
 ## Phase 1: Chat Skeleton

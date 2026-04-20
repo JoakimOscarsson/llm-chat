@@ -2,49 +2,76 @@ services:
   web:
     build:
       context: .
-      dockerfile: apps/web/Dockerfile
+      dockerfile: docker/runtime.Dockerfile
+    command: pnpm --filter @llm-chat-app/web dev
+    depends_on:
+      - api-gateway
     ports:
-      - "3000:3000"
+      - "${WEB_PORT:-3000}:3000"
 
   api-gateway:
     build:
       context: .
-      dockerfile: services/api-gateway/Dockerfile
+      dockerfile: docker/runtime.Dockerfile
+    command: pnpm --filter @llm-chat-app/api-gateway dev
+    depends_on:
+      - chat-service
+      - model-service
+      - session-service
+      - metrics-service
+    environment:
+      CHAT_SERVICE_URL: http://chat-service:4001
+      MODEL_SERVICE_URL: http://model-service:4002
+      SESSION_SERVICE_URL: http://session-service:4003
+      METRICS_SERVICE_URL: http://metrics-service:4004
     ports:
-      - "4000:4000"
+      - "${API_GATEWAY_PORT:-4000}:4000"
 
   chat-service:
     build:
       context: .
-      dockerfile: services/chat-service/Dockerfile
+      dockerfile: docker/runtime.Dockerfile
+    command: pnpm --filter @llm-chat-app/chat-service dev
+    environment:
+      SESSION_SERVICE_URL: http://session-service:4003
+      OLLAMA_ADAPTER_URL: http://ollama-adapter:4005
     ports:
-      - "4001:4001"
+      - "${CHAT_SERVICE_PORT:-4001}:4001"
 
   model-service:
     build:
       context: .
-      dockerfile: services/model-service/Dockerfile
+      dockerfile: docker/runtime.Dockerfile
+    command: pnpm --filter @llm-chat-app/model-service dev
+    depends_on:
+      - ollama-adapter
+    environment:
+      OLLAMA_ADAPTER_URL: http://ollama-adapter:4005
     ports:
-      - "4002:4002"
+      - "${MODEL_SERVICE_PORT:-4002}:4002"
 
   session-service:
     build:
       context: .
-      dockerfile: services/session-service/Dockerfile
+      dockerfile: docker/runtime.Dockerfile
+    command: pnpm --filter @llm-chat-app/session-service dev
     ports:
-      - "4003:4003"
+      - "${SESSION_SERVICE_PORT:-4003}:4003"
 
   metrics-service:
     build:
       context: .
-      dockerfile: services/metrics-service/Dockerfile
+      dockerfile: docker/runtime.Dockerfile
+    command: pnpm --filter @llm-chat-app/metrics-service dev
     ports:
-      - "4004:4004"
+      - "${METRICS_SERVICE_PORT:-4004}:4004"
 
   ollama-adapter:
     build:
       context: .
-      dockerfile: services/ollama-adapter/Dockerfile
+      dockerfile: docker/runtime.Dockerfile
+    command: pnpm --filter @llm-chat-app/ollama-adapter dev
+    environment:
+      OLLAMA_USE_STUB: "true"
     ports:
-      - "4005:4005"
-
+      - "${OLLAMA_ADAPTER_PORT:-4005}:4005"

@@ -8,6 +8,7 @@ export type OllamaAdapterConfig = {
   cfAccessClientId: string;
   cfAccessClientSecret: string;
   ollamaTimeoutMs: number;
+  useStub: boolean;
 };
 
 type CreateAppOptions = {
@@ -21,11 +22,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): OllamaAdapterC
     ollamaBaseUrl: env.OLLAMA_BASE_URL ?? "https://ollama.example.com",
     cfAccessClientId: env.CF_ACCESS_CLIENT_ID ?? "",
     cfAccessClientSecret: env.CF_ACCESS_CLIENT_SECRET ?? "",
-    ollamaTimeoutMs: Number(env.OLLAMA_TIMEOUT_MS ?? 60_000)
+    ollamaTimeoutMs: Number(env.OLLAMA_TIMEOUT_MS ?? 60_000),
+    useStub: env.OLLAMA_USE_STUB === "true"
   };
 }
 
 async function fetchModels(config: OllamaAdapterConfig, fetchImpl: typeof fetch) {
+  if (config.useStub) {
+    return modelsResponseSchema.parse({
+      models: [
+        {
+          name: "llama3.1:8b",
+          modifiedAt: "2026-04-20T18:00:00.000Z",
+          size: 4661224676
+        }
+      ],
+      fetchedAt: new Date().toISOString()
+    });
+  }
+
   const response = await fetchImpl(`${config.ollamaBaseUrl}/api/tags`, {
     headers: {
       "CF-Access-Client-Id": config.cfAccessClientId,
@@ -85,5 +100,5 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const app = createApp();
   const config = loadConfig();
-  app.listen({ host: "0.0.0.0", port: config.port });
+  void app.listen({ host: "0.0.0.0", port: config.port });
 }

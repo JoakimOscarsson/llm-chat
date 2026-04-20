@@ -2,6 +2,33 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createApp } from "./server.js";
 
+test("GET /internal/provider/models returns stub models when stub mode is enabled", async () => {
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: true
+    }
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/internal/provider/models"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json().models, [
+    {
+      name: "llama3.1:8b",
+      modifiedAt: "2026-04-20T18:00:00.000Z",
+      size: 4661224676
+    }
+  ]);
+});
+
 test("GET /internal/provider/models forwards Cloudflare headers and normalizes tags", async () => {
   let seenHeaders: Headers | undefined;
 
@@ -11,7 +38,8 @@ test("GET /internal/provider/models forwards Cloudflare headers and normalizes t
       ollamaBaseUrl: "https://example-ollama.test",
       cfAccessClientId: "client-id",
       cfAccessClientSecret: "client-secret",
-      ollamaTimeoutMs: 60_000
+      ollamaTimeoutMs: 60_000,
+      useStub: false
     },
     fetchImpl: async (input, init) => {
       assert.equal(String(input), "https://example-ollama.test/api/tags");
