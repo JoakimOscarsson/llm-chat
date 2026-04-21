@@ -496,6 +496,12 @@ h2 {
   white-space: pre-wrap;
 }
 
+.thinking-notice {
+  margin-bottom: 10px;
+  color: #64748b;
+  font-size: 0.84rem;
+}
+
 .transcript {
   display: flex;
   flex-direction: column;

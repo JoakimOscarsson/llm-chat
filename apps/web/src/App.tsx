@@ -457,7 +457,8 @@ export function App() {
   const [overrideStatus, setOverrideStatus] = useState("Session inherits app defaults");
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<TranscriptEntry[]>([]);
-  const [liveThinking, setLiveThinking] = useState("Ready for the next prompt.");
+  const [liveThinking, setLiveThinking] = useState("");
+  const [liveThinkingNotice, setLiveThinkingNotice] = useState<string | null>("Ready for the next prompt.");
   const [statusText, setStatusText] = useState("Ready");
   const [isStreaming, setIsStreaming] = useState(false);
   const [isModelSwitching, setIsModelSwitching] = useState(false);
@@ -705,7 +706,8 @@ export function App() {
       if (initialModel) {
         setIsModelSwitching(true);
         setStatusText(`Loading ${initialModel}...`);
-        setLiveThinking(`Preloading ${initialModel} before chat starts.`);
+        setLiveThinking("");
+        setLiveThinkingNotice(`Preloading ${initialModel} before chat starts.`);
 
         try {
           await warmModel(initialModel);
@@ -715,14 +717,14 @@ export function App() {
           }
 
           setStatusText(`${initialModel} ready`);
-          setLiveThinking(`Model ${initialModel} is loaded and ready.`);
+          setLiveThinkingNotice(`Model ${initialModel} is loaded and ready.`);
         } catch (error) {
           if (!active) {
             return;
           }
 
           setStatusText("Initial model load failed");
-          setLiveThinking(error instanceof Error ? error.message : `Could not load ${initialModel}.`);
+          setLiveThinkingNotice(error instanceof Error ? error.message : `Could not load ${initialModel}.`);
         } finally {
           if (active) {
             setIsModelSwitching(false);
@@ -816,6 +818,7 @@ export function App() {
     if (eventName === "thinking_delta") {
       const nextText = payload.text ?? "";
       setStatusText("Streaming reasoning...");
+      setLiveThinkingNotice(null);
       setLiveThinking((current) => `${current}${nextText}`);
       setMessages((current) =>
         appendToLatestAssistant(current, (message) => ({
@@ -828,10 +831,8 @@ export function App() {
     if (eventName === "response_delta") {
       const nextText = payload.text ?? "";
       setStatusText("Streaming answer...");
-      setLiveThinking((current) =>
-        current.trim() === ""
-          ? "This model does not stream a separate thinking trace."
-          : current
+      setLiveThinkingNotice((current) =>
+        current || liveThinking.trim() !== "" ? current : "This model does not stream a separate thinking trace."
       );
       setMessages((current) => {
         const nextMessages = appendToLatestAssistant(current, (message) => ({
@@ -852,7 +853,7 @@ export function App() {
 
     if (eventName === "thinking_unavailable") {
       const notice = payload.text ?? "This model does not stream a separate thinking trace.";
-      setLiveThinking(notice);
+      setLiveThinkingNotice(notice);
       setStatusText("Streaming answer...");
       setMessages((current) =>
         appendToLatestAssistant(current, (message) => ({
@@ -864,7 +865,7 @@ export function App() {
 
     if (eventName === "settings_notice") {
       const notice = payload.text ?? "One or more settings are unsupported for this model. Retrying without them.";
-      setLiveThinking(notice);
+      setLiveThinkingNotice(notice);
       setStatusText("Retrying with supported settings...");
     }
 
@@ -932,6 +933,7 @@ export function App() {
 
     setPrompt("");
     setLiveThinking("");
+    setLiveThinkingNotice(null);
     setStatusText(`Sending prompt to ${selectedModel}...`);
     setIsStreaming(true);
     setActiveRequestId(requestId);
@@ -1017,7 +1019,7 @@ export function App() {
     } catch (error) {
       if ((error as Error).name !== "AbortError") {
         const errorMessage = error instanceof Error ? error.message : "Stream interrupted.";
-        setLiveThinking(errorMessage);
+        setLiveThinkingNotice(errorMessage);
         setStatusText("Request failed");
         setMessages((current) =>
           appendToLatestAssistant(current, (message) => ({
@@ -1045,7 +1047,7 @@ export function App() {
     await streamReaderRef.current?.cancel();
     streamReaderRef.current = null;
     abortControllerRef.current = null;
-    setLiveThinking("Generation stopped.");
+    setLiveThinkingNotice("Generation stopped.");
     setStatusText("Stopped");
     setMessages((current) =>
       appendToLatestAssistant(current, (message) => ({
@@ -1107,7 +1109,8 @@ export function App() {
     setIsModelSwitching(true);
     setSelectedModel(nextModel);
     setStatusText(`Loading ${nextModel}...`);
-    setLiveThinking(`Preloading ${nextModel} before chat starts.`);
+    setLiveThinking("");
+    setLiveThinkingNotice(`Preloading ${nextModel} before chat starts.`);
 
     try {
       await warmModel(nextModel);
@@ -1145,11 +1148,11 @@ export function App() {
       }
 
       setStatusText(`${nextModel} ready`);
-      setLiveThinking(`Model ${nextModel} is loaded and ready.`);
+      setLiveThinkingNotice(`Model ${nextModel} is loaded and ready.`);
     } catch (error) {
       setSelectedModel(previousModel);
       setStatusText("Model switch failed");
-      setLiveThinking(error instanceof Error ? error.message : `Could not load ${nextModel}.`);
+      setLiveThinkingNotice(error instanceof Error ? error.message : `Could not load ${nextModel}.`);
     } finally {
       setIsModelSwitching(false);
     }
@@ -1188,7 +1191,8 @@ export function App() {
     setSelectedModel(payload.session.model);
     setMessages([]);
     setPrompt("");
-    setLiveThinking("Ready for the next prompt.");
+    setLiveThinking("");
+    setLiveThinkingNotice("Ready for the next prompt.");
     setStatusText("New session ready");
   };
 
@@ -1330,7 +1334,8 @@ export function App() {
     }
 
     setStatusText("Clearing history...");
-    setLiveThinking("Resetting the active conversation.");
+    setLiveThinking("");
+    setLiveThinkingNotice("Resetting the active conversation.");
 
     const response = await fetch(`${apiBaseUrl}/api/sessions/${selectedSessionId}/history`, {
       method: "DELETE"
@@ -1340,7 +1345,8 @@ export function App() {
     setActiveSession(payload.session);
     setMessages([]);
     setPrompt("");
-    setLiveThinking("Ready for the next prompt.");
+    setLiveThinking("");
+    setLiveThinkingNotice("Ready for the next prompt.");
     setStatusText("History cleared");
     setActiveRequestId(null);
     setSessions((current) =>
@@ -1484,6 +1490,7 @@ export function App() {
               <span className={`status-pill ${isStreaming ? "working" : "muted"}`}>{statusText}</span>
             </summary>
             <div className="thinking-box" role="status" aria-live="polite">
+              {liveThinkingNotice ? <p className="thinking-notice">{liveThinkingNotice}</p> : null}
               <div className="thinking-scroll" onScroll={handleThinkingScroll} ref={thinkingScrollRef}>
                 {liveThinking}
               </div>
