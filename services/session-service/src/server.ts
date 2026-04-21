@@ -60,7 +60,7 @@ const initialDefaults: AppDefaults = {
     top_p: 0.9,
     repeat_penalty: 1.05,
     num_ctx: 8192,
-    num_predict: 512,
+    num_predict: 5120,
     stop: []
   }
 };

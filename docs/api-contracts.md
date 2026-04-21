@@ -72,7 +72,7 @@ Example request body:
     "repeat_penalty": 1.05,
     "seed": 42,
     "num_ctx": 8192,
-    "num_predict": 512,
+    "num_predict": 5120,
     "stop": [
       "<END>"
     ]

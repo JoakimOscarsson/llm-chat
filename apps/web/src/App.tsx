@@ -135,7 +135,7 @@ const fallbackDefaults: AppDefaults = {
     top_p: 0.9,
     repeat_penalty: 1.05,
     num_ctx: 8192,
-    num_predict: 512,
+    num_predict: 5120,
     stop: []
   }
 };
@@ -261,7 +261,7 @@ const settingHints = {
   numCtx:
     "Maximum context window sent to the model. Larger values preserve more conversation but consume more memory.",
   numPredict:
-    "Maximum tokens to generate for the next answer.",
+    "Maximum tokens to generate for the next answer. This is the main response-length cap, so lower values can make replies stop early.",
   stop:
     "One stop sequence per line. Generation stops when the model emits any of these strings.",
   keepAlive:
@@ -1283,6 +1283,7 @@ export function App() {
                 <label className="settings-field">
                   {tooltipHint("Max tokens", settingHints.numPredict)}
                   <input aria-label="Max tokens" value={defaultNumPredict} onChange={(event) => setDefaultNumPredict(event.target.value)} />
+                  <small className="field-help">Controls the reply-length cap for new chats. Increase this if answers stop too early.</small>
                 </label>
                 <label className="settings-field">
                   {tooltipHint("Stop sequences", settingHints.stop)}
@@ -1352,6 +1353,7 @@ export function App() {
                 <label className="settings-field">
                   {tooltipHint("Max tokens override", settingHints.numPredict)}
                   <input aria-label="Max tokens override" value={overrideNumPredict} onChange={(event) => setOverrideNumPredict(event.target.value)} />
+                  <small className="field-help">Overrides the reply-length cap for this chat only.</small>
                 </label>
                 <label className="settings-field">
                   {tooltipHint("Stop override", settingHints.stop)}

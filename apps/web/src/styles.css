@@ -164,6 +164,12 @@ button:disabled {
   font-weight: 600;
 }
 
+.field-help {
+  color: #64748b;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .hint-chip {
   display: inline-flex;
   align-items: center;
