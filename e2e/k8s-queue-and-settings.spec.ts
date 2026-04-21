@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { chatPrompt } from "./helpers";
+
 test("queued requests can be retargeted and cancelled while another response is streaming", async ({ browser }) => {
   const firstContext = await browser.newContext();
   const secondContext = await browser.newContext();
@@ -10,15 +12,17 @@ test("queued requests can be retargeted and cancelled while another response is 
     await firstPage.goto("/");
     await secondPage.goto("/");
 
-    await expect(firstPage.getByLabel("Prompt")).toBeEnabled({ timeout: 60_000 });
-    await expect(secondPage.getByLabel("Prompt")).toBeEnabled({ timeout: 60_000 });
+    const firstPrompt = chatPrompt(firstPage);
+    const secondPrompt = chatPrompt(secondPage);
+    await expect(firstPrompt).toBeEnabled({ timeout: 60_000 });
+    await expect(secondPrompt).toBeEnabled({ timeout: 60_000 });
 
-    await firstPage.getByLabel("Prompt").fill("Hold the only Ollama slot for a few seconds.");
+    await firstPrompt.fill("Hold the only Ollama slot for a few seconds.");
     await firstPage.getByRole("button", { name: "Send" }).click();
 
     await expect(firstPage.getByRole("button", { name: "Stop" })).toBeVisible({ timeout: 20_000 });
 
-    await secondPage.getByLabel("Prompt").fill("Queue this request behind the first one.");
+    await secondPrompt.fill("Queue this request behind the first one.");
     await secondPage.getByRole("button", { name: "Send" }).click();
 
     const queueBanner = secondPage.getByRole("status").filter({ hasText: "Queued for" }).last();
@@ -44,7 +48,7 @@ test("queued requests can be retargeted and cancelled while another response is 
 
 test("host metrics are visible in the deployed app and session overrides persist", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByLabel("Prompt")).toBeEnabled({ timeout: 60_000 });
+  await expect(chatPrompt(page)).toBeEnabled({ timeout: 60_000 });
 
   await page.getByRole("button", { name: /expand settings sidebar/i }).click();
   const sessionOverrides = page.getByText("Session overrides").locator("..");
@@ -60,7 +64,7 @@ test("host metrics are visible in the deployed app and session overrides persist
   await expect(page.getByText(/11234 MB \/ 16384 MB/i)).toBeVisible({ timeout: 20_000 });
 
   await page.reload();
-  await expect(page.getByLabel("Prompt")).toBeEnabled({ timeout: 60_000 });
+  await expect(chatPrompt(page)).toBeEnabled({ timeout: 60_000 });
 
   await page.getByRole("button", { name: /expand settings sidebar/i }).click();
   await page.getByText("Session overrides").click();

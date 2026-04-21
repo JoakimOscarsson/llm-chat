@@ -1,9 +1,12 @@
 import { expect, test } from "@playwright/test";
 
+import { chatPrompt } from "./helpers";
+
 test("the Kubernetes deployment boots and completes a chat round-trip", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByLabel("Prompt")).toBeEnabled({ timeout: 60_000 });
+  const prompt = chatPrompt(page);
+  await expect(prompt).toBeEnabled({ timeout: 60_000 });
 
   await page.getByRole("button", { name: "Models" }).click();
   const modelSelector = page.getByLabel("Model selector");
@@ -15,7 +18,6 @@ test("the Kubernetes deployment boots and completes a chat round-trip", async ({
     .toBeGreaterThan(0);
   await page.keyboard.press("Escape");
 
-  const prompt = page.getByLabel("Prompt");
   await prompt.fill("Please reply with a short greeting.");
   await page.getByRole("button", { name: "Send" }).click();
 
