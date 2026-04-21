@@ -160,7 +160,46 @@ test("POST /internal/provider/chat/title returns a short sanitized title", async
 
   assert.equal(response.statusCode, 200);
   assert.match(forwardedBody, /"stream":false/);
-  assert.match(forwardedBody, /"maxLength":24/);
+  assert.match(forwardedBody, /"format":"json"/);
+  assert.match(forwardedBody, /"think":false/);
   assert.equal(response.json().title.length <= 24, true);
   assert.equal(response.json().title, "Fix nginx config and");
+});
+
+test("POST /internal/provider/chat/title falls back to the prompt when upstream title generation fails", async () => {
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false
+    },
+    fetchImpl: async () =>
+      new Response("model refused", {
+        status: 500,
+        headers: {
+          "content-type": "text/plain"
+        }
+      })
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/internal/provider/chat/title",
+    payload: {
+      model: "llama3.1:8b",
+      maxLength: 24,
+      messages: [
+        {
+          role: "user",
+          content: "Please help me debug nginx proxy headers"
+        }
+      ]
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().title, "help me debug nginx");
 });

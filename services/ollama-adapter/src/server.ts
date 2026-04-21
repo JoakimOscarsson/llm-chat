@@ -230,6 +230,24 @@ function sanitizeTitleCandidate(input: string, maxLength: number) {
   return sliced;
 }
 
+function fallbackTitleFromPrompt(messages: Array<{ role: string; content: string }> | undefined, maxLength: number) {
+  const firstUserMessage = messages?.find((message) => message.role === "user")?.content ?? "New chat";
+  const cleaned = firstUserMessage
+    .replace(/[`*_#>[\](){}]/g, " ")
+    .replace(/[^\p{L}\p{N}\s:/.-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) {
+    return "New chat";
+  }
+
+  const withoutLeadingInstruction = cleaned.replace(/^(please|can you|could you|help me|i need|show me)\s+/i, "").trim();
+  const candidate = sanitizeTitleCandidate(withoutLeadingInstruction || cleaned, maxLength);
+
+  return candidate || "New chat";
+}
+
 async function generateChatTitle(
   config: OllamaAdapterConfig,
   fetchImpl: typeof fetch,
@@ -238,71 +256,68 @@ async function generateChatTitle(
   const maxLength = Math.min(Math.max(payload.maxLength ?? SESSION_TITLE_MAX_LENGTH, 8), SESSION_TITLE_MAX_LENGTH);
 
   if (config.useStub) {
-    const firstUserMessage = payload.messages?.find((message) => message.role === "user")?.content ?? "New chat";
     return {
-      title: sanitizeTitleCandidate(firstUserMessage, maxLength).slice(0, maxLength) || "New chat"
+      title: fallbackTitleFromPrompt(payload.messages, maxLength)
     };
   }
-
-  const response = await fetchImpl(`${config.ollamaBaseUrl}/api/chat`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "CF-Access-Client-Id": config.cfAccessClientId,
-      "CF-Access-Client-Secret": config.cfAccessClientSecret
-    },
-    body: JSON.stringify({
-      model: payload.model ?? "llama3.1:8b",
-      messages: payload.messages ?? [],
-      stream: false,
-      format: {
-        type: "object",
-        properties: {
-          title: {
-            type: "string",
-            maxLength
-          }
-        },
-        required: ["title"]
-      },
-      options: {
-        temperature: 0.2,
-        num_predict: 24
-      }
-    })
-  });
-
-  if (!response.ok) {
-    const errorText = parseUpstreamErrorMessage(await response.text());
-    throw new Error(errorText || `Ollama upstream returned ${response.status}`);
-  }
-
-  const responsePayload = (await response.json()) as {
-    message?: {
-      content?: string;
-    };
-  };
-  const rawContent = responsePayload.message?.content ?? "";
-  let title = "";
 
   try {
-    const parsed = JSON.parse(rawContent) as { title?: unknown };
+    const response = await fetchImpl(`${config.ollamaBaseUrl}/api/chat`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "CF-Access-Client-Id": config.cfAccessClientId,
+        "CF-Access-Client-Secret": config.cfAccessClientSecret
+      },
+      body: JSON.stringify({
+        model: payload.model ?? "llama3.1:8b",
+        messages: payload.messages ?? [],
+        stream: false,
+        think: false,
+        format: "json",
+        options: {
+          temperature: 0.2,
+          num_predict: 24
+        }
+      })
+    });
 
-    if (typeof parsed.title === "string") {
-      title = parsed.title;
+    if (!response.ok) {
+      const errorText = parseUpstreamErrorMessage(await response.text());
+      throw new Error(errorText || `Ollama upstream returned ${response.status}`);
+    }
+
+    const responsePayload = (await response.json()) as {
+      message?: {
+        content?: string;
+      };
+    };
+    const rawContent = responsePayload.message?.content ?? "";
+    let title = "";
+
+    try {
+      const parsed = JSON.parse(rawContent) as { title?: unknown };
+
+      if (typeof parsed.title === "string") {
+        title = parsed.title;
+      }
+    } catch {
+      title = rawContent;
+    }
+
+    const sanitized = sanitizeTitleCandidate(title, maxLength);
+
+    if (sanitized) {
+      return {
+        title: sanitized
+      };
     }
   } catch {
-    title = rawContent;
-  }
-
-  const sanitized = sanitizeTitleCandidate(title, maxLength);
-
-  if (!sanitized) {
-    throw new Error("Upstream title generation returned an empty title");
+    // Fall back to a prompt-derived title if the model cannot or will not produce one.
   }
 
   return {
-    title: sanitized
+    title: fallbackTitleFromPrompt(payload.messages, maxLength)
   };
 }
 
