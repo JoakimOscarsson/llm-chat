@@ -964,6 +964,7 @@ test("clears transcript history for the active session", async () => {
 test("streams thinking and markdown response into the UI as chunks arrive", async () => {
   const encoder = new TextEncoder();
   let streamController: { enqueue(chunk: Uint8Array): void; close(): void } | null = null;
+  let sessionDetailLoads = 0;
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
@@ -982,6 +983,45 @@ test("streams thinking and markdown response into the UI as chunks arrive", asyn
       return new Response(
         JSON.stringify({
           sessions: [{ id: "sess_1", title: "Troubleshooting nginx config", model: "llama3.1:8b", updatedAt: "2026-04-20T18:03:00Z" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1")) {
+      sessionDetailLoads += 1;
+
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: sessionDetailLoads > 1 ? "Fix greeting format" : "Troubleshooting nginx config",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:03:00.000Z",
+            messages:
+              sessionDetailLoads > 1
+                ? [
+                    {
+                      id: "msg_user_1",
+                      role: "user",
+                      content: "Hello",
+                      createdAt: "2026-04-20T18:03:01.000Z"
+                    },
+                    {
+                      id: "msg_assistant_1",
+                      role: "assistant",
+                      content: "# Hello there\n\n- First point",
+                      createdAt: "2026-04-20T18:03:02.000Z",
+                      thinking: {
+                        content: "Thinking...",
+                        collapsedByDefault: true
+                      }
+                    }
+                  ]
+                : [],
+            overrides: {}
+          }
         }),
         { headers: { "content-type": "application/json" } }
       );
@@ -1076,6 +1116,7 @@ test("streams thinking and markdown response into the UI as chunks arrive", asyn
   });
   expect(screen.getByText("First point")).toBeInTheDocument();
   expect(screen.getByText("Complete")).toBeInTheDocument();
+  await screen.findByRole("button", { name: /fix greeting format/i });
 });
 
 test("uses the currently selected model and surfaces stream errors", async () => {
@@ -1318,6 +1359,7 @@ test("shows a non-thinking notice while still streaming the response", async () 
 test("shows unsupported settings notices while continuing the response stream", async () => {
   const encoder = new TextEncoder();
   let streamController: { enqueue(chunk: Uint8Array): void; close(): void } | null = null;
+  let sessionDetailLoads = 0;
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
@@ -1342,6 +1384,8 @@ test("shows unsupported settings notices while continuing the response stream", 
     }
 
     if (url.endsWith("/api/sessions/sess_1")) {
+      sessionDetailLoads += 1;
+
       return new Response(
         JSON.stringify({
           session: {
@@ -1350,7 +1394,23 @@ test("shows unsupported settings notices while continuing the response stream", 
             model: "llama3.1:8b",
             createdAt: "2026-04-20T18:00:00.000Z",
             updatedAt: "2026-04-20T18:03:00.000Z",
-            messages: [],
+            messages:
+              sessionDetailLoads > 1
+                ? [
+                    {
+                      id: "msg_user_1",
+                      role: "user",
+                      content: "Hello",
+                      createdAt: "2026-04-20T18:03:01.000Z"
+                    },
+                    {
+                      id: "msg_assistant_1",
+                      role: "assistant",
+                      content: "Recovered answer",
+                      createdAt: "2026-04-20T18:03:02.000Z"
+                    }
+                  ]
+                : [],
             overrides: {}
           }
         }),

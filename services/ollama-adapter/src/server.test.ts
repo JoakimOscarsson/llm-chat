@@ -109,3 +109,58 @@ test("GET /internal/provider/models forwards Cloudflare headers and normalizes t
     }
   ]);
 });
+
+test("POST /internal/provider/chat/title returns a short sanitized title", async () => {
+  let forwardedBody = "";
+
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false
+    },
+    fetchImpl: async (input, init) => {
+      assert.equal(String(input), "https://example-ollama.test/api/chat");
+      forwardedBody = String(init?.body ?? "");
+
+      return new Response(
+        JSON.stringify({
+          message: {
+            content: JSON.stringify({
+              title: "  Fix nginx config and proxy headers  "
+            })
+          }
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/internal/provider/chat/title",
+    payload: {
+      model: "llama3.1:8b",
+      maxLength: 24,
+      messages: [
+        {
+          role: "user",
+          content: "Help me fix my nginx reverse proxy."
+        }
+      ]
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(forwardedBody, /"stream":false/);
+  assert.match(forwardedBody, /"maxLength":24/);
+  assert.equal(response.json().title.length <= 24, true);
+  assert.equal(response.json().title, "Fix nginx config and");
+});

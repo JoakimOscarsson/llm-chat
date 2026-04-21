@@ -2,6 +2,8 @@ import { z } from "zod";
 import { isoDateSchema } from "./common.js";
 import { appDefaultsSchema } from "./settings.js";
 
+export const SESSION_TITLE_MAX_LENGTH = 48;
+
 const thinkingTraceSchema = z.object({
   content: z.string(),
   collapsedByDefault: z.literal(true)
@@ -44,7 +46,7 @@ export const sessionOverridesSchema = z.object({
 
 export const sessionSummarySchema = z.object({
   id: z.string(),
-  title: z.string(),
+  title: z.string().min(1).max(SESSION_TITLE_MAX_LENGTH),
   model: z.string(),
   updatedAt: isoDateSchema
 });
@@ -55,7 +57,7 @@ export const sessionsResponseSchema = z.object({
 
 export const sessionSchema = z.object({
   id: z.string(),
-  title: z.string(),
+  title: z.string().min(1).max(SESSION_TITLE_MAX_LENGTH),
   model: z.string(),
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
@@ -68,7 +70,7 @@ export const sessionResponseSchema = z.object({
 });
 
 export const createSessionRequestSchema = z.object({
-  title: z.string().min(1).default("New chat"),
+  title: z.string().min(1).max(SESSION_TITLE_MAX_LENGTH).default("New chat"),
   model: z.string().min(1)
 });
 
@@ -95,7 +97,7 @@ export const sessionContextResponseSchema = z.object({
 });
 
 export const sessionPatchSchema = z.object({
-  title: z.string().optional(),
+  title: z.string().min(1).max(SESSION_TITLE_MAX_LENGTH).optional(),
   model: z.string().optional(),
   overrides: sessionOverridesSchema.optional()
 });

@@ -478,12 +478,26 @@ export function App() {
     }
   };
 
-  const loadSessionDetail = async (sessionId: string) => {
+  const loadSessionDetail = async (sessionId: string, forceTranscriptSync = false) => {
     try {
       const response = await fetch(`${apiBaseUrl}/api/sessions/${sessionId}`);
       const payload = (await response.json()) as { session: SessionDetail };
       setActiveSession(payload.session);
-      setMessages((current) => (current.length === 0 ? mapSessionMessagesToTranscript(payload.session) : current));
+      setMessages((current) =>
+        forceTranscriptSync || current.length === 0 ? mapSessionMessagesToTranscript(payload.session) : current
+      );
+      setSessions((current) =>
+        current.map((session) =>
+          session.id === payload.session.id
+            ? {
+                ...session,
+                title: payload.session.title,
+                model: payload.session.model,
+                updatedAt: payload.session.updatedAt
+              }
+            : session
+        )
+      );
       setSelectedModel((current) => pickAvailableModel(payload.session.model, models, current));
       setOverrideSystemPrompt(payload.session.overrides?.systemPrompt ?? "");
       setOverrideRequestHistoryCount(
@@ -515,7 +529,9 @@ export function App() {
           : "Session inherits app defaults"
       );
     } catch {
-      setActiveSession(null);
+      if (!forceTranscriptSync) {
+        setActiveSession(null);
+      }
       setOverrideStatus("Session details unavailable");
     }
   };
@@ -749,6 +765,8 @@ export function App() {
     const requestId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`;
     const abortController = new AbortController();
     let buffer = "";
+    let completedNormally = false;
+    const sessionIdAtSend = selectedSessionId;
 
     setPrompt("");
     setLiveThinking("Connecting to model...");
@@ -796,6 +814,8 @@ export function App() {
           handleStreamEvent(eventName, payload);
         }
 
+        completedNormally = true;
+
         return;
       }
 
@@ -826,6 +846,8 @@ export function App() {
         const { eventName, payload } = parseEventBlock(buffer);
         handleStreamEvent(eventName, payload);
       }
+
+      completedNormally = true;
     } catch (error) {
       if ((error as Error).name !== "AbortError") {
         setLiveThinking("Stream interrupted.");
@@ -841,6 +863,10 @@ export function App() {
       streamReaderRef.current = null;
       abortControllerRef.current = null;
       setIsStreaming(false);
+
+      if (completedNormally && sessionIdAtSend) {
+        await loadSessionDetail(sessionIdAtSend, true);
+      }
     }
   };
 

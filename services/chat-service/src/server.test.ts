@@ -200,6 +200,7 @@ test("POST /internal/chat/stream persists streamed assistant content and thinkin
     ""
   ].join("\n");
   const persistedBodies: string[] = [];
+  let patchedTitleBody = "";
 
   const app = createApp({
     config: {
@@ -260,6 +261,34 @@ test("POST /internal/chat/stream persists streamed assistant content and thinkin
         );
       }
 
+      if (url === "http://ollama-adapter:4005/internal/provider/chat/title") {
+        return new Response(
+          JSON.stringify({
+            title: "Counting task"
+          }),
+          { headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (url === "http://session-service:4003/internal/sessions/sess_1") {
+        patchedTitleBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            session: {
+              id: "sess_1",
+              title: "Counting task",
+              model: "llama3.1:8b",
+              createdAt: "2026-04-20T18:00:00.000Z",
+              updatedAt: "2026-04-20T18:00:02.000Z",
+              messages: [],
+              overrides: {}
+            }
+          }),
+          { headers: { "content-type": "application/json" } }
+        );
+      }
+
       if (url === "http://ollama-adapter:4005/internal/provider/chat/stream") {
         return new Response(streamBody, {
           headers: {
@@ -288,6 +317,137 @@ test("POST /internal/chat/stream persists streamed assistant content and thinkin
   assert.match(persistedBodies[0] ?? "", /"role":"user","content":"Count to 2\."/);
   assert.match(persistedBodies[1] ?? "", /"role":"assistant","content":"One two"/);
   assert.match(persistedBodies[1] ?? "", /"thinking":\{"content":"Plan first\."/);
+  assert.match(patchedTitleBody, /"title":"Counting task"/);
+});
+
+test("POST /internal/chat/stream generates a short title only for the first chat turn", async () => {
+  let titleRequests = 0;
+  let patchedTitleBody = "";
+
+  const app = createApp({
+    config: {
+      port: 4001,
+      sessionServiceUrl: "http://session-service:4003",
+      ollamaAdapterUrl: "http://ollama-adapter:4005"
+    },
+    fetchImpl: async (input, init) => {
+      const url = String(input);
+
+      if (url === "http://session-service:4003/internal/sessions/sess_1/context") {
+        return new Response(
+          JSON.stringify({
+            sessionId: "sess_1",
+            model: "llama3.1:8b",
+            globalDefaults: {
+              systemPrompt: "Use markdown.",
+              requestHistoryCount: 8,
+              responseHistoryCount: 8,
+              streamThinking: true,
+              persistSessions: true,
+              options: {
+                temperature: 0.7,
+                top_k: 40,
+                top_p: 0.9,
+                repeat_penalty: 1.05,
+                num_ctx: 8192,
+                num_predict: 512,
+                stop: []
+              }
+            },
+            overrides: {},
+            history: []
+          }),
+          { headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (
+        url === "http://session-service:4003/internal/sessions/sess_1/messages" ||
+        url === "http://session-service:4003/internal/sessions/sess_1/assistant-result"
+      ) {
+        return new Response(
+          JSON.stringify({
+            session: {
+              id: "sess_1",
+              title: "New chat",
+              model: "llama3.1:8b",
+              createdAt: "2026-04-20T18:00:00.000Z",
+              updatedAt: "2026-04-20T18:00:01.000Z",
+              messages: [],
+              overrides: {}
+            }
+          }),
+          { headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (url === "http://ollama-adapter:4005/internal/provider/chat/title") {
+        titleRequests += 1;
+
+        return new Response(
+          JSON.stringify({
+            title: "Fix nginx proxy"
+          }),
+          { headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (url === "http://session-service:4003/internal/sessions/sess_1") {
+        patchedTitleBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            session: {
+              id: "sess_1",
+              title: "Fix nginx proxy",
+              model: "llama3.1:8b",
+              createdAt: "2026-04-20T18:00:00.000Z",
+              updatedAt: "2026-04-20T18:00:02.000Z",
+              messages: [],
+              overrides: {}
+            }
+          }),
+          { headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (url === "http://ollama-adapter:4005/internal/provider/chat/stream") {
+        return new Response(
+          [
+            "event: response_delta",
+            'data: {"text":"Use the nginx proxy_pass directive."}',
+            "",
+            "event: done",
+            'data: {"finishReason":"stop"}',
+            "",
+            ""
+          ].join("\n"),
+          {
+            headers: {
+              "content-type": "text/event-stream"
+            }
+          }
+        );
+      }
+
+      throw new Error(`Unexpected url: ${url}`);
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/internal/chat/stream",
+    payload: {
+      requestId: "req_title",
+      sessionId: "sess_1",
+      model: "llama3.1:8b",
+      message: "Help me fix nginx"
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(titleRequests, 1);
+  assert.match(patchedTitleBody, /"title":"Fix nginx proxy"/);
 });
 
 test("POST /internal/chat/stop aborts an in-flight stream and forwards the stop request", async () => {

@@ -1,6 +1,11 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { fileURLToPath } from "node:url";
-import { modelWarmRequestSchema, modelWarmResponseSchema, modelsResponseSchema } from "@llm-chat-app/contracts";
+import {
+  SESSION_TITLE_MAX_LENGTH,
+  modelWarmRequestSchema,
+  modelWarmResponseSchema,
+  modelsResponseSchema
+} from "@llm-chat-app/contracts";
 
 export type OllamaAdapterConfig = {
   port: number;
@@ -24,6 +29,12 @@ type ChatPayload = {
   streamThinking?: boolean;
   think?: boolean | string;
   keep_alive?: string | number;
+};
+
+type TitlePayload = {
+  model?: string;
+  messages?: Array<{ role: string; content: string }>;
+  maxLength?: number;
 };
 
 type UnsupportedOption = {
@@ -192,6 +203,106 @@ function withoutUnsupportedOption(payload: ChatPayload, key: string): ChatPayloa
   return {
     ...payload,
     options: nextOptions
+  };
+}
+
+function sanitizeTitleCandidate(input: string, maxLength: number) {
+  const collapsed = input
+    .replace(/^["'\s]+|["'\s]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!collapsed) {
+    return "";
+  }
+
+  if (collapsed.length <= maxLength) {
+    return collapsed;
+  }
+
+  const sliced = collapsed.slice(0, maxLength).trim();
+  const lastWhitespace = sliced.lastIndexOf(" ");
+
+  if (lastWhitespace >= 12) {
+    return sliced.slice(0, lastWhitespace).trim();
+  }
+
+  return sliced;
+}
+
+async function generateChatTitle(
+  config: OllamaAdapterConfig,
+  fetchImpl: typeof fetch,
+  payload: TitlePayload
+) {
+  const maxLength = Math.min(Math.max(payload.maxLength ?? SESSION_TITLE_MAX_LENGTH, 8), SESSION_TITLE_MAX_LENGTH);
+
+  if (config.useStub) {
+    const firstUserMessage = payload.messages?.find((message) => message.role === "user")?.content ?? "New chat";
+    return {
+      title: sanitizeTitleCandidate(firstUserMessage, maxLength).slice(0, maxLength) || "New chat"
+    };
+  }
+
+  const response = await fetchImpl(`${config.ollamaBaseUrl}/api/chat`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "CF-Access-Client-Id": config.cfAccessClientId,
+      "CF-Access-Client-Secret": config.cfAccessClientSecret
+    },
+    body: JSON.stringify({
+      model: payload.model ?? "llama3.1:8b",
+      messages: payload.messages ?? [],
+      stream: false,
+      format: {
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            maxLength
+          }
+        },
+        required: ["title"]
+      },
+      options: {
+        temperature: 0.2,
+        num_predict: 24
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = parseUpstreamErrorMessage(await response.text());
+    throw new Error(errorText || `Ollama upstream returned ${response.status}`);
+  }
+
+  const responsePayload = (await response.json()) as {
+    message?: {
+      content?: string;
+    };
+  };
+  const rawContent = responsePayload.message?.content ?? "";
+  let title = "";
+
+  try {
+    const parsed = JSON.parse(rawContent) as { title?: unknown };
+
+    if (typeof parsed.title === "string") {
+      title = parsed.title;
+    }
+  } catch {
+    title = rawContent;
+  }
+
+  const sanitized = sanitizeTitleCandidate(title, maxLength);
+
+  if (!sanitized) {
+    throw new Error("Upstream title generation returned an empty title");
+  }
+
+  return {
+    title: sanitized
   };
 }
 
@@ -591,6 +702,11 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     } finally {
       activeRequests.delete(requestId);
     }
+  });
+
+  app.post("/internal/provider/chat/title", async (request) => {
+    const payload = (request.body ?? {}) as TitlePayload;
+    return generateChatTitle(config, fetchImpl, payload);
   });
 
   app.post("/internal/provider/chat/stop", async (request) => {
