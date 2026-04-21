@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@llm-chat-app/contracts": "workspace:*",
-    "fastify": "^5.2.1"
+    "fastify": "^5.2.1",
+    "redis": "^5.8.2"
   },
   "devDependencies": {
     "@llm-chat-app/tsconfig": "workspace:*",
