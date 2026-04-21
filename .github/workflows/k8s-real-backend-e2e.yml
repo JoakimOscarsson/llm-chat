@@ -71,8 +71,8 @@ jobs:
 
       - name: Wait for deployments
         run: |
-          kubectl -n llm-chat wait --for=condition=ready pod -l app.kubernetes.io/component=postgresql --timeout=300s
-          kubectl -n llm-chat wait --for=condition=ready pod -l app.kubernetes.io/component=redis --timeout=300s
+          kubectl -n llm-chat rollout status statefulset/llm-chat-postgresql --timeout=300s
+          kubectl -n llm-chat rollout status statefulset/llm-chat-redis --timeout=300s
           kubectl -n llm-chat wait --for=condition=available deployment --all --timeout=300s
 
       - name: Port-forward web service

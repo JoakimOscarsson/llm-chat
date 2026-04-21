@@ -35,3 +35,9 @@ for path in sorted((root / ".github" / "workflows").glob("*.yml")):
 if failed:
     raise SystemExit(1)
 PY
+
+echo "Checking Kubernetes workflows wait on StatefulSets instead of transient pod labels..."
+if grep -R -n -E 'kubectl -n llm-chat wait --for=condition=ready pod -l app\.kubernetes\.io/component=(postgresql|redis)' "${ROOT_DIR}/.github/workflows" >/dev/null 2>&1; then
+  echo "Found Kubernetes workflow waits that target Postgres or Redis pods by label; use rollout status on the StatefulSet instead." >&2
+  exit 1
+fi
