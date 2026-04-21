@@ -1,0 +1,202 @@
+image:
+  repository: ghcr.io/joakimoscarsson/llm-chat
+  tag: latest
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+appSecrets:
+  existingSecretName: ""
+  cfAccessClientId: ""
+  cfAccessClientSecret: ""
+
+ingress:
+  enabled: true
+  className: nginx
+  host: llm-chat.local
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+
+cloudflareTunnel:
+  enabled: false
+  image: cloudflare/cloudflared:2024.8.2
+  token: ""
+  existingSecretName: ""
+  replicaCount: 1
+
+metrics:
+  baseUrl: ""
+  timeoutMs: 1500
+  staleAfterMs: 30000
+
+modelService:
+  cacheTtlMs: 30000
+
+ollama:
+  baseUrl: http://ollama.default.svc.cluster.local:11434
+  timeoutMs: 60000
+  useStub: false
+  maxParallelRequests: 1
+  queuePromptAfterMs: 12000
+  runtimeStatusTtlMs: 3000
+
+sessionStore:
+  driver: postgres
+  externalUrl: ""
+
+redis:
+  enabled: true
+  externalUrl: ""
+  image:
+    repository: redis
+    tag: 7.2-alpine
+    pullPolicy: IfNotPresent
+  auth:
+    password: redis
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClassName: ""
+
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: 16-alpine
+    pullPolicy: IfNotPresent
+  auth:
+    username: llm_chat
+    password: llm_chat
+    database: llm_chat
+  persistence:
+    enabled: true
+    size: 4Gi
+    storageClassName: ""
+
+sessionMigration:
+  enabled: true
+  backoffLimit: 1
+  command:
+    - pnpm
+    - --filter
+    - "@llm-chat-app/session-service"
+    - migrate
+
+services:
+  web:
+    enabled: true
+    replicaCount: 2
+    containerPort: 3000
+    servicePort: 80
+    command:
+      - pnpm
+      - --filter
+      - "@llm-chat-app/web"
+      - dev
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: false
+      minAvailable: 1
+  api-gateway:
+    enabled: true
+    replicaCount: 2
+    containerPort: 4000
+    servicePort: 4000
+    command:
+      - pnpm
+      - --filter
+      - "@llm-chat-app/api-gateway"
+      - dev
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 5
+      targetCPUUtilizationPercentage: 70
+    pdb:
+      enabled: true
+      minAvailable: 1
+  chat-service:
+    enabled: true
+    replicaCount: 2
+    containerPort: 4001
+    servicePort: 4001
+    command:
+      - pnpm
+      - --filter
+      - "@llm-chat-app/chat-service"
+      - dev
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 5
+      targetCPUUtilizationPercentage: 70
+    pdb:
+      enabled: true
+      minAvailable: 1
+  model-service:
+    enabled: true
+    replicaCount: 1
+    containerPort: 4002
+    servicePort: 4002
+    command:
+      - pnpm
+      - --filter
+      - "@llm-chat-app/model-service"
+      - dev
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: false
+      minAvailable: 1
+  session-service:
+    enabled: true
+    replicaCount: 2
+    containerPort: 4003
+    servicePort: 4003
+    command:
+      - pnpm
+      - --filter
+      - "@llm-chat-app/session-service"
+      - dev
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 5
+      targetCPUUtilizationPercentage: 70
+    pdb:
+      enabled: true
+      minAvailable: 1
+  metrics-service:
+    enabled: true
+    replicaCount: 1
+    containerPort: 4004
+    servicePort: 4004
+    command:
+      - pnpm
+      - --filter
+      - "@llm-chat-app/metrics-service"
+      - dev
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: false
+      minAvailable: 1
+  ollama-adapter:
+    enabled: true
+    replicaCount: 2
+    containerPort: 4005
+    servicePort: 4005
+    command:
+      - pnpm
+      - --filter
+      - "@llm-chat-app/ollama-adapter"
+      - dev
+    autoscaling:
+      enabled: false
+    pdb:
+      enabled: true
+      minAvailable: 1

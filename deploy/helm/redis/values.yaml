@@ -1,0 +1,12 @@
+image:
+  repository: redis
+  tag: 7.2-alpine
+  pullPolicy: IfNotPresent
+
+auth:
+  password: redis
+
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClassName: ""

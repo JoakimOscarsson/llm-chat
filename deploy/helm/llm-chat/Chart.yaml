@@ -1,0 +1,15 @@
+apiVersion: v2
+name: llm-chat
+description: Kubernetes packaging for the LLM chat app with in-cluster Postgres and Redis.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: postgresql
+    version: 0.1.0
+    repository: file://../postgresql
+    condition: postgresql.enabled
+  - name: redis
+    version: 0.1.0
+    repository: file://../redis
+    condition: redis.enabled

@@ -1,0 +1,34 @@
+{{- if .Values.sessionMigration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "llm-chat.fullname" . }}-session-migrate
+  labels:
+    {{- include "llm-chat.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.sessionMigration.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "llm-chat.labels" . | nindent 8 }}
+        app.kubernetes.io/component: session-migration
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: session-migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            {{- toYaml .Values.sessionMigration.command | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "llm-chat.configMapName" . }}
+            - secretRef:
+                name: {{ include "llm-chat.secretName" . }}
+          env:
+            - name: PORT
+              value: {{ index .Values.services "session-service" "containerPort" | quote }}
+{{- end }}

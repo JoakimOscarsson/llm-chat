@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "llm-chat.configMapName" . }}
+  labels:
+    {{- include "llm-chat.labels" . | nindent 4 }}
+data:
+  CHAT_SERVICE_URL: http://{{ include "llm-chat.serviceName" (dict "root" . "name" "chat-service") }}:4001
+  MODEL_SERVICE_URL: http://{{ include "llm-chat.serviceName" (dict "root" . "name" "model-service") }}:4002
+  SESSION_SERVICE_URL: http://{{ include "llm-chat.serviceName" (dict "root" . "name" "session-service") }}:4003
+  METRICS_SERVICE_URL: http://{{ include "llm-chat.serviceName" (dict "root" . "name" "metrics-service") }}:4004
+  OLLAMA_ADAPTER_URL: http://{{ include "llm-chat.serviceName" (dict "root" . "name" "ollama-adapter") }}:4005
+  OLLAMA_BASE_URL: {{ .Values.ollama.baseUrl | quote }}
+  OLLAMA_TIMEOUT_MS: {{ .Values.ollama.timeoutMs | quote }}
+  OLLAMA_USE_STUB: {{ ternary "true" "false" .Values.ollama.useStub | quote }}
+  OLLAMA_MAX_PARALLEL_REQUESTS: {{ .Values.ollama.maxParallelRequests | quote }}
+  OLLAMA_QUEUE_PROMPT_AFTER_MS: {{ .Values.ollama.queuePromptAfterMs | quote }}
+  OLLAMA_RUNTIME_STATUS_TTL_MS: {{ .Values.ollama.runtimeStatusTtlMs | quote }}
+  MODEL_CACHE_TTL_MS: {{ .Values.modelService.cacheTtlMs | quote }}
+  METRICS_BASE_URL: {{ .Values.metrics.baseUrl | quote }}
+  METRICS_TIMEOUT_MS: {{ .Values.metrics.timeoutMs | quote }}
+  METRICS_STALE_AFTER_MS: {{ .Values.metrics.staleAfterMs | quote }}
+  SESSION_STORE_DRIVER: {{ .Values.sessionStore.driver | quote }}
