@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApp } from "./server.js";
+import { InMemoryQueueCoordinator } from "./coordination.js";
+import { createDeferred, waitFor } from "./test-helpers.js";
 
 test("POST /internal/provider/chat/stream returns stub thinking and response events", async () => {
   const app = createApp({
@@ -691,4 +693,579 @@ test("POST /internal/provider/chat/stream fails cleanly when unsupported-option 
   assert.match(response.body, /top_k/);
   assert.match(response.body, /event: error/);
   assert.match(response.body, /unsupported option: top_k/);
+});
+
+test("POST /internal/provider/chat/stream queues later requests when the cluster-wide limit is 1", async () => {
+  const coordinator = new InMemoryQueueCoordinator({
+    maxParallelRequests: 1
+  });
+  const releaseFirst = createDeferred<void>();
+  const requestBodies: string[] = [];
+  let chatCalls = 0;
+
+  const fetchImpl: typeof fetch = async (input, init) => {
+    assert.equal(String(input), "https://example-ollama.test/api/chat");
+    chatCalls += 1;
+    requestBodies.push(String(init?.body ?? ""));
+    const signal = init?.signal;
+    const encoder = new TextEncoder();
+
+    if (chatCalls === 1) {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(`${JSON.stringify({ message: { content: "First response." }, done: false })}\n`)
+          );
+          signal?.addEventListener(
+            "abort",
+            () => {
+              controller.error(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+            },
+            { once: true }
+          );
+          void releaseFirst.promise.then(() => {
+            controller.enqueue(encoder.encode(`${JSON.stringify({ done: true, done_reason: "stop" })}\n`));
+            controller.close();
+          });
+        }
+      });
+
+      return new Response(stream, {
+        headers: {
+          "content-type": "application/x-ndjson"
+        }
+      });
+    }
+
+    return new Response(
+      [
+        JSON.stringify({ message: { content: "Second response." }, done: false }),
+        JSON.stringify({ done: true, done_reason: "stop" })
+      ].join("\n"),
+      {
+        headers: {
+          "content-type": "application/x-ndjson"
+        }
+      }
+    );
+  };
+
+  const appOne = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false,
+      redisUrl: "",
+      maxParallelRequests: 1,
+      queuePromptAfterMs: 50,
+      runtimeStatusTtlMs: 0,
+      podInstanceId: "pod-one"
+    },
+    coordinationStore: coordinator,
+    fetchImpl
+  });
+  const appTwo = createApp({
+    config: {
+      port: 4006,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false,
+      redisUrl: "",
+      maxParallelRequests: 1,
+      queuePromptAfterMs: 50,
+      runtimeStatusTtlMs: 0,
+      podInstanceId: "pod-two"
+    },
+    coordinationStore: coordinator,
+    fetchImpl
+  });
+
+  const firstResponsePromise = appOne.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_1",
+      model: "gemma4",
+      messages: [{ role: "user", content: "First" }]
+    }
+  });
+
+  await waitFor(() => chatCalls === 1);
+
+  const secondResponsePromise = appTwo.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_2",
+      model: "qwen2.5-coder:7b",
+      messages: [{ role: "user", content: "Second" }]
+    }
+  });
+
+  await waitFor(() => {
+    const snapshotPromise = coordinator.getRequestSnapshot("req_2");
+    return snapshotPromise.then((snapshot) => snapshot?.state === "queued").catch(() => false);
+  }).catch(async () => {
+    const snapshot = await coordinator.getRequestSnapshot("req_2");
+    assert.equal(snapshot?.state, "queued");
+  });
+
+  assert.equal(chatCalls, 1);
+
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 80);
+  });
+
+  releaseFirst.resolve();
+
+  const [firstResponse, secondResponse] = await Promise.all([firstResponsePromise, secondResponsePromise]);
+
+  assert.equal(firstResponse.statusCode, 200);
+  assert.equal(secondResponse.statusCode, 200);
+  assert.equal(chatCalls, 2);
+  assert.match(secondResponse.body, /event: queued/);
+  assert.match(secondResponse.body, /event: queue_prompt/);
+  assert.match(secondResponse.body, /event: started/);
+  assert.match(secondResponse.body, /Second response\./);
+  assert.match(requestBodies[1] ?? "", /"model":"qwen2.5-coder:7b"/);
+});
+
+test("POST /internal/provider/chat/stream enforces a cluster-wide limit greater than one", async () => {
+  const coordinator = new InMemoryQueueCoordinator({
+    maxParallelRequests: 2
+  });
+  const release = [createDeferred<void>(), createDeferred<void>()];
+  let chatCalls = 0;
+
+  const fetchImpl: typeof fetch = async (input, init) => {
+    assert.equal(String(input), "https://example-ollama.test/api/chat");
+    const callIndex = chatCalls;
+    chatCalls += 1;
+    const encoder = new TextEncoder();
+
+    if (callIndex < 2) {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(`${JSON.stringify({ message: { content: `Running ${callIndex + 1}` }, done: false })}\n`)
+          );
+          void release[callIndex]?.promise.then(() => {
+            controller.enqueue(encoder.encode(`${JSON.stringify({ done: true, done_reason: "stop" })}\n`));
+            controller.close();
+          });
+        }
+      });
+
+      return new Response(stream, {
+        headers: {
+          "content-type": "application/x-ndjson"
+        }
+      });
+    }
+
+    return new Response(
+      [
+        JSON.stringify({ message: { content: "Queued third" }, done: false }),
+        JSON.stringify({ done: true, done_reason: "stop" })
+      ].join("\n"),
+      {
+        headers: {
+          "content-type": "application/x-ndjson"
+        }
+      }
+    );
+  };
+
+  const makeApp = (podInstanceId: string, port: number) =>
+    createApp({
+      config: {
+        port,
+        ollamaBaseUrl: "https://example-ollama.test",
+        cfAccessClientId: "client-id",
+        cfAccessClientSecret: "client-secret",
+        ollamaTimeoutMs: 60_000,
+        useStub: false,
+        redisUrl: "",
+        maxParallelRequests: 2,
+        queuePromptAfterMs: 50,
+        runtimeStatusTtlMs: 0,
+        podInstanceId
+      },
+      coordinationStore: coordinator,
+      fetchImpl
+    });
+
+  const appOne = makeApp("pod-a", 4005);
+  const appTwo = makeApp("pod-b", 4006);
+  const appThree = makeApp("pod-c", 4007);
+
+  const first = appOne.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_1",
+      model: "gemma4",
+      messages: [{ role: "user", content: "One" }]
+    }
+  });
+  const second = appTwo.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_2",
+      model: "qwen2.5-coder:7b",
+      messages: [{ role: "user", content: "Two" }]
+    }
+  });
+
+  await waitFor(() => chatCalls === 2);
+
+  const third = appThree.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_3",
+      model: "llama3.1:8b",
+      messages: [{ role: "user", content: "Three" }]
+    }
+  });
+
+  await waitFor(async () => (await coordinator.getRequestSnapshot("req_3"))?.state === "queued");
+  const queuedSnapshot = await coordinator.getRequestSnapshot("req_3");
+  assert.equal(queuedSnapshot?.state, "queued");
+  assert.equal(chatCalls, 2);
+
+  release[0].resolve();
+  release[1].resolve();
+
+  const thirdResponse = await third;
+  await first;
+  await second;
+
+  assert.equal(chatCalls, 3);
+  assert.match(thirdResponse.body, /event: queued/);
+  assert.match(thirdResponse.body, /Queued third/);
+});
+
+test("POST /internal/provider/chat/stop cancels queued requests without starting them", async () => {
+  const coordinator = new InMemoryQueueCoordinator({
+    maxParallelRequests: 1
+  });
+  const release = createDeferred<void>();
+  let chatCalls = 0;
+
+  const fetchImpl: typeof fetch = async (input) => {
+    assert.equal(String(input), "https://example-ollama.test/api/chat");
+    chatCalls += 1;
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(`${JSON.stringify({ message: { content: "First response." }, done: false })}\n`)
+        );
+        await release.promise;
+        controller.enqueue(new TextEncoder().encode(`${JSON.stringify({ done: true, done_reason: "stop" })}\n`));
+        controller.close();
+      }
+    });
+
+    return new Response(stream, {
+      headers: {
+        "content-type": "application/x-ndjson"
+      }
+    });
+  };
+
+  const appOne = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false,
+      redisUrl: "",
+      maxParallelRequests: 1,
+      queuePromptAfterMs: 25,
+      runtimeStatusTtlMs: 0,
+      podInstanceId: "pod-one"
+    },
+    coordinationStore: coordinator,
+    fetchImpl
+  });
+  const appTwo = createApp({
+    config: {
+      port: 4006,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false,
+      redisUrl: "",
+      maxParallelRequests: 1,
+      queuePromptAfterMs: 25,
+      runtimeStatusTtlMs: 0,
+      podInstanceId: "pod-two"
+    },
+    coordinationStore: coordinator,
+    fetchImpl
+  });
+
+  const first = appOne.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_1",
+      model: "gemma4",
+      messages: [{ role: "user", content: "One" }]
+    }
+  });
+
+  await waitFor(() => chatCalls === 1);
+
+  const second = appTwo.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_2",
+      model: "qwen2.5-coder:7b",
+      messages: [{ role: "user", content: "Two" }]
+    }
+  });
+
+  await waitFor(async () => (await coordinator.getRequestSnapshot("req_2"))?.state === "queued");
+
+  const stopResponse = await appOne.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stop",
+    payload: {
+      requestId: "req_2"
+    }
+  });
+
+  assert.equal(stopResponse.statusCode, 200);
+  assert.deepEqual(stopResponse.json(), {
+    stopped: true,
+    requestId: "req_2"
+  });
+
+  release.resolve();
+
+  const secondResponse = await second;
+  await first;
+
+  assert.equal(chatCalls, 1);
+  assert.match(secondResponse.body, /queued_cancelled/);
+});
+
+test("POST /internal/provider/chat/stop aborts running requests across pods", async () => {
+  const coordinator = new InMemoryQueueCoordinator({
+    maxParallelRequests: 1
+  });
+  let abortSeen = false;
+
+  const fetchImpl: typeof fetch = async (input, init) => {
+    assert.equal(String(input), "https://example-ollama.test/api/chat");
+    const signal = init?.signal;
+    const encoder = new TextEncoder();
+
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(`${JSON.stringify({ message: { content: "Streaming..." }, done: false })}\n`)
+        );
+        signal?.addEventListener(
+          "abort",
+          () => {
+            abortSeen = true;
+            controller.error(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+          },
+          { once: true }
+        );
+      }
+    });
+
+    return new Response(stream, {
+      headers: {
+        "content-type": "application/x-ndjson"
+      }
+    });
+  };
+
+  const appOne = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false,
+      redisUrl: "",
+      maxParallelRequests: 1,
+      queuePromptAfterMs: 50,
+      runtimeStatusTtlMs: 0,
+      podInstanceId: "pod-one"
+    },
+    coordinationStore: coordinator,
+    fetchImpl
+  });
+  const appTwo = createApp({
+    config: {
+      port: 4006,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false,
+      redisUrl: "",
+      maxParallelRequests: 1,
+      queuePromptAfterMs: 50,
+      runtimeStatusTtlMs: 0,
+      podInstanceId: "pod-two"
+    },
+    coordinationStore: coordinator,
+    fetchImpl
+  });
+
+  const streamResponsePromise = appOne.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_1",
+      model: "gemma4",
+      messages: [{ role: "user", content: "Cancel me" }]
+    }
+  });
+
+  await waitFor(async () => (await coordinator.getRequestSnapshot("req_1"))?.state === "running");
+
+  const stopResponse = await appTwo.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stop",
+    payload: {
+      requestId: "req_1"
+    }
+  });
+
+  assert.equal(stopResponse.statusCode, 200);
+
+  const streamResponse = await streamResponsePromise;
+
+  assert.equal(abortSeen, true);
+  assert.match(streamResponse.body, /"finishReason":"cancelled"/);
+});
+
+test("PATCH /internal/provider/chat/requests/:requestId retargets queued requests before execution starts", async () => {
+  const coordinator = new InMemoryQueueCoordinator({
+    maxParallelRequests: 1
+  });
+  const releaseFirst = createDeferred<void>();
+  const requestBodies: string[] = [];
+  let chatCalls = 0;
+
+  const fetchImpl: typeof fetch = async (input, init) => {
+    assert.equal(String(input), "https://example-ollama.test/api/chat");
+    chatCalls += 1;
+    requestBodies.push(String(init?.body ?? ""));
+    const encoder = new TextEncoder();
+
+    if (chatCalls === 1) {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(`${JSON.stringify({ message: { content: "First response." }, done: false })}\n`)
+          );
+          void releaseFirst.promise.then(() => {
+            controller.enqueue(encoder.encode(`${JSON.stringify({ done: true, done_reason: "stop" })}\n`));
+            controller.close();
+          });
+        }
+      });
+
+      return new Response(stream, {
+        headers: {
+          "content-type": "application/x-ndjson"
+        }
+      });
+    }
+
+    return new Response(
+      [
+        JSON.stringify({ message: { content: "Retargeted response." }, done: false }),
+        JSON.stringify({ done: true, done_reason: "stop" })
+      ].join("\n"),
+      {
+        headers: {
+          "content-type": "application/x-ndjson"
+        }
+      }
+    );
+  };
+
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false,
+      redisUrl: "",
+      maxParallelRequests: 1,
+      queuePromptAfterMs: 25,
+      runtimeStatusTtlMs: 0,
+      podInstanceId: "pod-one"
+    },
+    coordinationStore: coordinator,
+    fetchImpl
+  });
+
+  const first = app.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_1",
+      model: "gemma4",
+      messages: [{ role: "user", content: "One" }]
+    }
+  });
+
+  await waitFor(() => chatCalls === 1);
+
+  const second = app.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_2",
+      model: "gemma4",
+      messages: [{ role: "user", content: "Two" }]
+    }
+  });
+
+  await waitFor(async () => (await coordinator.getRequestSnapshot("req_2"))?.state === "queued");
+
+  const patchResponse = await app.inject({
+    method: "PATCH",
+    url: "/internal/provider/chat/requests/req_2",
+    payload: {
+      model: "qwen2.5-coder:7b"
+    }
+  });
+
+  assert.equal(patchResponse.statusCode, 200);
+  assert.equal(patchResponse.json().request.model, "qwen2.5-coder:7b");
+
+  releaseFirst.resolve();
+
+  const secondResponse = await second;
+  await first;
+
+  assert.match(secondResponse.body, /event: started/);
+  assert.match(secondResponse.body, /qwen2\.5-coder:7b/);
+  assert.match(requestBodies[1] ?? "", /"model":"qwen2.5-coder:7b"/);
 });
