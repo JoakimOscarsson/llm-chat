@@ -23,10 +23,13 @@ export const modelWarmRequestSchema = z.object({
   keep_alive: z.union([z.string(), z.number()]).optional()
 });
 
+export const modelWarmStatusSchema = z.enum(["warmed", "already_resident", "skipped_busy", "skipped_queued"]);
+
 export const modelWarmResponseSchema = z.object({
-  ready: z.literal(true),
+  status: modelWarmStatusSchema,
   model: z.string(),
-  warmedAt: isoDateSchema,
+  ready: z.boolean(),
+  warmedAt: isoDateSchema.optional(),
   loadDuration: z.number().nonnegative().optional(),
   totalDuration: z.number().nonnegative().optional()
 });

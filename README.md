@@ -1,6 +1,6 @@
 # LLM Chat App
 
-Microservice-first Ollama chat application with real-time streaming, model warmup, session management, and a Docker-first local workflow.
+Microservice-first Ollama chat application with real-time streaming, a shared Ollama execution model, and both Docker-first local workflows and planned Kubernetes deployment packaging.
 
 ## What It Does
 
@@ -25,9 +25,16 @@ Implemented now:
 - Model warmup flow before chatting with a newly selected model
 - Responsive sidebar UI, markdown rendering, and live thinking panel
 
+Scalability work now in progress:
+
+- Postgres-backed session persistence
+- Redis-backed global Ollama queue and concurrency limiter
+- Kubernetes Helm packaging with in-cluster Postgres and Redis
+- local compose parity for the same runtime topology
+
 Current limitations:
 
-- Session persistence is in-memory only, so chats reset if `session-service` restarts.
+- Session persistence is still in-memory on `main` until the scalability tracks land.
 - The metrics UI is wired, but there is not yet a real external GPU metrics collector in this repo.
 - Workspace-wide `lint` is still a placeholder script.
 
@@ -121,6 +128,8 @@ Start with:
 - [docs/architecture-spec.md](/Users/joakim/Documents/codex/llm-chat-app/docs/architecture-spec.md:1)
 - [docs/implementation-plan.md](/Users/joakim/Documents/codex/llm-chat-app/docs/implementation-plan.md:1)
 - [docs/tdd-guidelines.md](/Users/joakim/Documents/codex/llm-chat-app/docs/tdd-guidelines.md:1)
+- [docs/scalability-architecture-spec.md](/Users/joakim/Documents/codex/llm-chat-app/docs/scalability-architecture-spec.md:1)
+- [docs/scalability-workstream-contracts.md](/Users/joakim/Documents/codex/llm-chat-app/docs/scalability-workstream-contracts.md:1)
 
 ## Notes
 

@@ -2,89 +2,93 @@
 
 ## Purpose
 
-These guides define how implementation work should be split so coding can proceed cleanly with humans or coding agents.
+These guides define how parallel agents should work in this repository without breaking service boundaries or each other.
 
-## Architecture Guardrails
+## Core Rules
 
 - Keep secrets and upstream auth on the backend only.
 - Treat streaming as a first-class feature, not a later enhancement.
 - Keep metrics independent from chat.
-- Prefer stable backend-normalized contracts over leaking raw Ollama responses into the UI.
-- Build for graceful degradation when optional upstream capabilities are missing.
+- Do not bypass service boundaries.
+- Do not import implementation code from one service into another.
+- Shared types and wire contracts live only in `packages/contracts`.
 
-## Agent Roles
+## Track Ownership
 
-### Product/Architecture Agent
+### Coordinator
 
-Responsibilities:
+Owns only:
 
-- maintain docs in `docs/`
-- resolve open questions into decisions
-- keep scope disciplined for V1
-
-Definition of done:
-
-- docs updated when architecture or product decisions change
-
-### Frontend Agent
+- `packages/contracts/**`
+- `docs/**`
+- `AGENTS.md`
+- `README.md`
 
 Responsibilities:
 
-- chat layout and interaction design
-- streaming rendering
-- settings UI
-- local persistence
-- accessibility and keyboard behavior
+- freeze contracts before implementation tracks begin
+- approve or reject any post-freeze interface change
+- rebroadcast approved contract changes to affected tracks
+- merge tracks in gate order
+- perform final system validation
 
-Key constraints:
+### Track Agents
 
-- do not embed secrets
-- assume streams may arrive out of order or end unexpectedly
-- treat thinking and final answer as separate render channels
+Track agents must stay within their owned paths:
 
-### Backend Agent
+- session persistence: `services/session-service/**`
+- Ollama queue/runtime: `services/ollama-adapter/**`
+- chat/gateway integration: `services/chat-service/**`, `services/api-gateway/**`
+- web queue UX: `apps/web/**`
+- Helm deployment: `deploy/helm/**`
+- compose parity: `compose.yaml`, local env examples, local run docs
 
-Responsibilities:
+No track agent may edit `packages/contracts/**` or interface docs after the coordinator freezes them.
 
-- config loading
-- auth/header injection
-- Ollama proxying
-- stream normalization
-- metrics adapter and health endpoints
+## Required Reading Before Coding
 
-Key constraints:
+- [docs/interface-spec.md](/Users/joakim/Documents/codex/llm-chat-app/docs/interface-spec.md:1)
+- [docs/microservices-architecture.md](/Users/joakim/Documents/codex/llm-chat-app/docs/microservices-architecture.md:1)
+- [docs/scalability-workstream-contracts.md](/Users/joakim/Documents/codex/llm-chat-app/docs/scalability-workstream-contracts.md:1)
+- [docs/scalability-merge-sequence.md](/Users/joakim/Documents/codex/llm-chat-app/docs/scalability-merge-sequence.md:1)
+- the nearest local `AGENTS.md`
 
-- never log secrets
-- validate all inbound request payloads
-- expose frontend-friendly events rather than raw upstream chunks
+## Contract Change Control
 
-### QA/Verification Agent
+- After Track 0 lands, only the coordinator may edit:
+  - `packages/contracts/**`
+  - `docs/interface-spec.md`
+  - `docs/scalability-workstream-contracts.md`
+- If a track discovers a contract mismatch, it must stop at that boundary and report:
+  - requested change
+  - why current contract is insufficient
+  - impact on dependent tracks
 
-Responsibilities:
+## Delivery Rules
 
-- verify chat flow
-- verify cancellation
-- verify model refresh
-- verify metrics failure isolation
+- Use a dedicated branch per track.
+- Use TDD.
+- Test degraded paths, not only happy paths.
+- Include in final handoff:
+  - branch name
+  - files changed
+  - tests added or updated
+  - new env vars
+  - interfaces touched
+  - known limitations
 
-Key constraints:
+## Parallel Safety Rules
 
-- test degraded-backend states explicitly
+- Do not stage or commit unrelated files.
+- Do not “clean up” files owned by another track.
+- Do not update shared docs opportunistically from a feature branch.
+- Prefer compatibility shims over ad hoc contract drift.
 
-## Change Management
+## Final Validation Responsibility
 
-- Update shared schemas before frontend/backend contract changes land independently.
-- Keep file ownership boundaries clean:
-  - frontend in `apps/web`
-  - backend in `apps/api`
-  - shared contracts in `packages/shared`
-- Avoid introducing database persistence in V1 without updating the product and architecture docs first.
+Only the coordinator owns:
 
-## PR Checklist
-
-- Does this keep upstream secrets server-side?
-- Does this preserve streaming behavior?
-- Does the metrics path fail safely?
-- Does the UI remain usable if Ollama is unreachable?
-- Are settings validated and bounded?
-- Are shared types updated if the API shape changed?
+- final merge conflict resolution
+- final integrated Docker validation
+- final integration and system tests
+- final push to `main`
