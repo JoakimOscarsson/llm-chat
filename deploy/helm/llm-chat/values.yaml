@@ -42,6 +42,7 @@ ollama:
   maxParallelRequests: 1
   queuePromptAfterMs: 12000
   runtimeStatusTtlMs: 3000
+  stubResponseDelayMs: 0
 
 sessionStore:
   driver: postgres

@@ -5,6 +5,7 @@
   "packageManager": "pnpm@10.0.0",
   "scripts": {
     "build": "pnpm -r build",
+    "ci:coverage": "sh scripts/coverage-report.sh",
     "ci:docker": "npm run ci:docker:validate && npm run ci:docker:static-analysis",
     "ci:compose:smoke": "sh scripts/compose-smoke.sh",
     "ci:host-metrics:smoke": "sh scripts/host-metrics-smoke.sh",
@@ -19,6 +20,7 @@
     "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
-    "@playwright/test": "^1.54.2"
+    "@playwright/test": "^1.54.2",
+    "c8": "^10.1.3"
   }
 }

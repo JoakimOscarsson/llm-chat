@@ -7,7 +7,8 @@ cloudflareTunnel:
 ollama:
   useStub: true
   maxParallelRequests: 1
-  queuePromptAfterMs: 4000
+  queuePromptAfterMs: 1000
+  stubResponseDelayMs: 4000
 
 services:
   web:

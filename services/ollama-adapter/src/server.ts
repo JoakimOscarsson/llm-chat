@@ -30,6 +30,7 @@ export type OllamaAdapterConfig = {
   queuePromptAfterMs: number;
   runtimeStatusTtlMs: number;
   podInstanceId: string;
+  stubResponseDelayMs: number;
 };
 
 type CreateAppOptions = {
@@ -498,7 +499,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): OllamaAdapterC
     maxParallelRequests: Math.max(1, Number(env.OLLAMA_MAX_PARALLEL_REQUESTS ?? 1)),
     queuePromptAfterMs: Math.max(0, Number(env.OLLAMA_QUEUE_PROMPT_AFTER_MS ?? 12_000)),
     runtimeStatusTtlMs: Math.max(0, Number(env.OLLAMA_RUNTIME_STATUS_TTL_MS ?? 30_000)),
-    podInstanceId: env.POD_INSTANCE_ID ?? `ollama-adapter-${randomUUID()}`
+    podInstanceId: env.POD_INSTANCE_ID ?? `ollama-adapter-${randomUUID()}`,
+    stubResponseDelayMs: Math.max(0, Number(env.OLLAMA_STUB_RESPONSE_DELAY_MS ?? 0))
   };
 }
 
@@ -515,6 +517,16 @@ async function fetchModels(config: OllamaAdapterConfig, fetchImpl: typeof fetch)
           capabilities: ["completion"],
           family: "llama",
           families: ["llama"]
+        },
+        {
+          name: "qwen2.5-coder:7b",
+          modifiedAt: "2026-04-20T18:00:00.000Z",
+          size: 4511224676,
+          chatCapable: true,
+          capabilitySource: "stub",
+          capabilities: ["completion"],
+          family: "qwen",
+          families: ["qwen"]
         }
       ],
       fetchedAt: nowIso()
@@ -963,6 +975,9 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       writeSseEvent(reply, "thinking_delta", {
         text: "Thinking..."
       });
+      if (config.stubResponseDelayMs > 0) {
+        await sleep(config.stubResponseDelayMs);
+      }
       writeSseEvent(reply, "response_delta", {
         text: "Hello there"
       });

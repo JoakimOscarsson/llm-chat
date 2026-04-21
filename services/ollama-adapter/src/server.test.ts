@@ -32,6 +32,16 @@ test("GET /internal/provider/models returns stub models when stub mode is enable
       capabilities: ["completion"],
       family: "llama",
       families: ["llama"]
+    },
+    {
+      name: "qwen2.5-coder:7b",
+      modifiedAt: "2026-04-20T18:00:00.000Z",
+      size: 4511224676,
+      chatCapable: true,
+      capabilitySource: "stub",
+      capabilities: ["completion"],
+      family: "qwen",
+      families: ["qwen"]
     }
   ]);
 });

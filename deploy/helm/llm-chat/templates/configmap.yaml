@@ -16,6 +16,7 @@ data:
   OLLAMA_MAX_PARALLEL_REQUESTS: {{ .Values.ollama.maxParallelRequests | quote }}
   OLLAMA_QUEUE_PROMPT_AFTER_MS: {{ .Values.ollama.queuePromptAfterMs | quote }}
   OLLAMA_RUNTIME_STATUS_TTL_MS: {{ .Values.ollama.runtimeStatusTtlMs | quote }}
+  OLLAMA_STUB_RESPONSE_DELAY_MS: {{ .Values.ollama.stubResponseDelayMs | quote }}
   MODEL_CACHE_TTL_MS: {{ .Values.modelService.cacheTtlMs | quote }}
   METRICS_BASE_URL: {{ .Values.metrics.baseUrl | quote }}
   METRICS_TIMEOUT_MS: {{ .Values.metrics.timeoutMs | quote }}
