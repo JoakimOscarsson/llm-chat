@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 import { newDb } from "pg-mem";
 import { initialDefaults } from "../defaults.js";
@@ -205,4 +206,40 @@ test("postgres store init does not retry non-retryable failures", async () => {
 
   await assert.rejects(store.init(), /syntax error/i);
   assert.equal(attempts, 1);
+});
+
+test("postgres store tolerates pool error events after init", async (t) => {
+  class FakePool extends EventEmitter {
+    async query(sql: string) {
+      if (sql.includes("SELECT EXISTS")) {
+        return { rows: [{ exists: false }] };
+      }
+
+      if (sql.includes("SELECT version FROM session_service_migrations")) {
+        return { rows: [] };
+      }
+
+      if (sql.includes("SELECT payload FROM app_defaults")) {
+        return { rows: [{ payload: initialDefaults }] };
+      }
+
+      return { rows: [], rowCount: 0 };
+    }
+
+    async end() {}
+  }
+
+  const pool = new FakePool();
+  const store = createPostgresSessionStore({ pool: pool as never });
+  t.after(async () => {
+    await store.close();
+  });
+
+  await store.init();
+
+  pool.emit("error", new Error("Connection terminated unexpectedly"));
+
+  const defaults = await store.getDefaults();
+
+  assert.equal(defaults.systemPrompt, initialDefaults.systemPrompt);
 });

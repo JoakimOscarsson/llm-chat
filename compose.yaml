@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-llm_chat}
       POSTGRES_USER: ${POSTGRES_USER:-llm_chat}
@@ -20,6 +21,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     command:
       - redis-server
       - --appendonly
@@ -97,12 +99,21 @@ services:
       context: .
       dockerfile: docker/runtime.Dockerfile
     command: pnpm --filter @llm-chat-app/session-service dev
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       SESSION_STORE_DRIVER: ${SESSION_STORE_DRIVER:-postgres}
       SESSION_STORE_URL: ${SESSION_STORE_URL:-postgresql://llm_chat:llm_chat@postgres:5432/llm_chat}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:4003/health >/dev/null || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
     ports:
       - "${SESSION_SERVICE_PORT:-4003}:4003"
 

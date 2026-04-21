@@ -11,7 +11,7 @@ type Queryable = Pick<Pool, "query"> | Pick<PoolClient, "query">;
 
 const migrationsDir = fileURLToPath(new URL("../../migrations", import.meta.url));
 const initRetryDelayMs = 500;
-const initRetryAttempts = 12;
+const initRetryAttempts = 30;
 
 function toIsoString(value: Date | string) {
   return value instanceof Date ? value.toISOString() : value;
@@ -212,9 +212,18 @@ export function createPostgresSessionStore(config: { connectionString: string } 
       : new Pool({
           connectionString: config.connectionString
         } satisfies PoolConfig);
+  const eventedPool = pool as Pool & {
+    on?: (event: string, listener: (...args: unknown[]) => void) => unknown;
+  };
 
   const ownsPool = !("pool" in config);
   let initPromise: Promise<void> | null = null;
+
+  if (typeof eventedPool.on === "function") {
+    eventedPool.on("error", (error) => {
+      console.warn("[session-service] Postgres pool error; future queries will retry with new connections.", error);
+    });
+  }
 
   return {
     async init() {
