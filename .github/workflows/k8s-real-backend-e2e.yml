@@ -1,6 +1,9 @@
 name: Kubernetes Real Backend E2E
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
