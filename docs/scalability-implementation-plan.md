@@ -2,34 +2,34 @@
 
 ## Phase 0: Foundation Freeze
 
-- Freeze contracts, env names, SSE events, and runtime payloads.
-- Update architecture, interface, and agent guidance docs.
+- [x] Freeze contracts, env names, SSE events, and runtime payloads.
+- [x] Update architecture, interface, and agent guidance docs.
 
 ## Phase 1: Shared State Backends
 
-- Move session-service to Postgres.
-- Introduce migrations and bootstrap flow.
-- Add Redis-backed queue coordination in ollama-adapter.
+- [x] Move session-service to Postgres.
+- [x] Introduce migrations and bootstrap flow.
+- [x] Add Redis-backed queue coordination in ollama-adapter.
 
 ## Phase 2: Service Integration
 
-- Integrate queue lifecycle through chat-service and api-gateway.
-- Add queued request mutation endpoint.
-- Add runtime status endpoint.
+- [x] Integrate queue lifecycle through chat-service and api-gateway.
+- [x] Add queued request mutation endpoint.
+- [x] Add runtime status endpoint.
 
 ## Phase 3: UI And Local Ops
 
-- Add queue and runtime UX in the web app.
-- Add compose parity with Postgres and Redis.
+- [x] Add queue and runtime UX in the web app.
+- [x] Add compose parity with Postgres and Redis.
 
 ## Phase 4: Kubernetes Packaging
 
-- Add Helm chart, dependencies, ingress, scaling resources, and optional Cloudflare Tunnel support.
+- [x] Add Helm chart, dependencies, ingress, scaling resources, and optional Cloudflare Tunnel support.
 
 ## Phase 5: Final Validation
 
-- Docker validation
-- service integration tests
-- queue integration tests
-- Helm lint/render
-- compose smoke tests
+- [x] Docker validation
+- [x] service integration tests
+- [x] queue integration tests
+- [x] Helm lint/render
+- [x] compose smoke tests

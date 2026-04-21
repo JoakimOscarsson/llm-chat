@@ -1,6 +1,6 @@
-# LLM Chat App Planning Docs
+# LLM Chat App Docs
 
-This directory contains the initial planning package for a Docker-based web chat interface targeting an Ollama-compatible backend.
+This directory now serves as both the planning archive and the implementation reference for the Ollama chat app, including the completed scalability and Kubernetes packaging work.
 
 ## Documents
 
@@ -14,6 +14,7 @@ This directory contains the initial planning package for a Docker-based web chat
 - `scalability-agent-workstreams.md`: Track ownership and branch layout for parallel implementation.
 - `scalability-workstream-contracts.md`: Frozen queue/runtime payloads for implementation tracks.
 - `scalability-merge-sequence.md`: Gate order and merge sequence for coordinator-led integration.
+- `../deploy/helm/README.md`: Helm packaging usage and validation entrypoint.
 - `repository-layout.md`: Proposed monorepo structure and ownership boundaries.
 - `api-contracts.md`: Frontend/backend API contracts, streaming behavior, and future metrics integration.
 - `interface-spec.md`: Detailed public and internal service contracts for microservice implementation.
@@ -23,9 +24,9 @@ This directory contains the initial planning package for a Docker-based web chat
 
 ## Working Assumptions
 
-- The app is a self-hosted Docker deployment.
+- The app is a self-hosted Docker deployment with a matching Helm deployment path.
 - The LLM backend is an Ollama server reachable over HTTP(S), potentially behind Cloudflare Tunnel.
-- The scalability phase targets Kubernetes with Helm, in-cluster Postgres, and in-cluster Redis.
+- The scalability phase is implemented with Helm, in-cluster Postgres, and in-cluster Redis.
 - The UI should stream both "thinking" content and final assistant output if the backend exposes them.
 - A thin app backend is preferred over direct browser-to-Ollama calls so secrets stay server-side and CORS/auth concerns stay contained.
 - GPU VRAM metrics will be designed into the UI now, but the backend integration may ship later.
