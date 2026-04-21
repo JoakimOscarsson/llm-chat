@@ -351,10 +351,20 @@ function ControlsIcon() {
   );
 }
 
-function CloseIcon() {
+function SlideLeftIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 20 20">
-      <path d="M5 5l10 10M15 5 5 15" />
+      <path d="M12.5 4.5 7 10l5.5 5.5" />
+      <path d="M15.5 4.5v11" />
+    </svg>
+  );
+}
+
+function SlideRightIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20">
+      <path d="M7.5 4.5 13 10l-5.5 5.5" />
+      <path d="M4.5 4.5v11" />
     </svg>
   );
 }
@@ -362,6 +372,7 @@ function CloseIcon() {
 export function App() {
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [models, setModels] = useState<ModelSummary[]>([]);
@@ -416,6 +427,8 @@ export function App() {
   const transcriptRef = useRef<HTMLElement | null>(null);
   const thinkingScrollRef = useRef<HTMLDivElement | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
+  const leftSidebarMode = viewportWidth >= 1320 ? "docked" : "overlay";
+  const rightSidebarMode = viewportWidth >= 1400 ? "docked" : "overlay";
 
   const pickAvailableModel = (
     preferredModel: string | null | undefined,
@@ -619,6 +632,17 @@ export function App() {
       thinkingPane.scrollTop = thinkingPane.scrollHeight;
     }
   }, [liveThinking, thinkingPinned]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportWidth(window.innerWidth);
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
 
   const handleStreamEvent = (eventName: string | undefined, payload: StreamEventPayload) => {
     if (eventName === "meta" && payload.requestId) {
@@ -1170,37 +1194,55 @@ export function App() {
       : "Metrics unavailable";
 
   return (
-    <div className="app-shell">
-      {leftSidebarOpen ? (
-        <aside className="sidebar expanded">
+    <div
+      className={[
+        "app-shell",
+        leftSidebarOpen && leftSidebarMode === "docked" ? "left-docked" : "",
+        rightSidebarOpen && rightSidebarMode === "docked" ? "right-docked" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {leftSidebarOpen && leftSidebarMode === "overlay" ? (
+        <button
+          aria-label="Close sessions sidebar"
+          className="rail-backdrop left open"
+          type="button"
+          onClick={() => setLeftSidebarOpen(false)}
+        />
+      ) : null}
+      <aside
+        aria-hidden={!leftSidebarOpen}
+        className={`sidebar ${leftSidebarMode} ${leftSidebarOpen ? "open" : ""}`}
+      >
           <div className="sidebar-header">
             <div>
               <p className="eyebrow">Sessions</p>
               <h1>LLM Chat</h1>
             </div>
-            <IconButton label="Collapse sessions sidebar" onClick={() => setLeftSidebarOpen(false)}>
-              <CloseIcon />
+            <IconButton label="Slide sessions sidebar left" onClick={() => setLeftSidebarOpen(false)}>
+              <SlideLeftIcon />
             </IconButton>
           </div>
           <button className="primary-button" type="button" onClick={() => void handleCreateSession()}>
             New session
           </button>
-          <div className="session-list">
+          <ul className="session-list">
             {sessions.map((session) => (
-              <button
-                aria-pressed={selectedSessionId === session.id}
-                className="session-card"
-                key={session.id}
-                type="button"
-                onClick={() => setSelectedSessionId(session.id)}
-              >
-                <span>{session.title}</span>
-                <small>{session.updatedAt}</small>
-              </button>
+              <li className="session-row" key={session.id}>
+                <button
+                  aria-pressed={selectedSessionId === session.id}
+                  className="session-card"
+                  type="button"
+                  onClick={() => setSelectedSessionId(session.id)}
+                >
+                  <span className="session-title">{session.title}</span>
+                  <small className="session-meta">{session.updatedAt}</small>
+                </button>
+              </li>
             ))}
-          </div>
-        </aside>
-      ) : null}
+          </ul>
+      </aside>
 
       <main className="chat-panel">
         <header className="panel-header">
@@ -1345,15 +1387,26 @@ export function App() {
         </form>
       </main>
 
-      {rightSidebarOpen ? (
-        <aside className="utility-panel expanded">
+      {rightSidebarOpen && rightSidebarMode === "overlay" ? (
+        <button
+          aria-label="Close settings sidebar"
+          className="rail-backdrop right open"
+          type="button"
+          onClick={() => setRightSidebarOpen(false)}
+        />
+      ) : null}
+
+      <aside
+        aria-hidden={!rightSidebarOpen}
+        className={`utility-panel ${rightSidebarMode} ${rightSidebarOpen ? "open" : ""}`}
+      >
           <div className="sidebar-header">
             <div>
               <p className="eyebrow">Controls</p>
               <h2>Session settings</h2>
             </div>
-            <IconButton label="Collapse settings sidebar" onClick={() => setRightSidebarOpen(false)}>
-              <CloseIcon />
+            <IconButton label="Slide settings sidebar right" onClick={() => setRightSidebarOpen(false)}>
+              <SlideRightIcon />
             </IconButton>
           </div>
           <>
@@ -1538,8 +1591,7 @@ export function App() {
               </div>
             </details>
           </>
-        </aside>
-      ) : null}
+      </aside>
     </div>
   );
 }

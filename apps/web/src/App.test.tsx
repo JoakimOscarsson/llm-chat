@@ -3,9 +3,37 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 
+const originalInnerWidth = window.innerWidth;
+const defaultAppDefaults = {
+  systemPrompt: "You are a concise, helpful assistant.",
+  requestHistoryCount: 8,
+  responseHistoryCount: 8,
+  streamThinking: true,
+  persistSessions: true,
+  options: {
+    temperature: 0.7,
+    top_k: 40,
+    top_p: 0.9,
+    repeat_penalty: 1.05,
+    num_ctx: 8192,
+    num_predict: 5120,
+    stop: []
+  }
+};
+
+function setWindowWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  setWindowWidth(originalInnerWidth);
 });
 
 test("renders discovered models from the gateway", async () => {
@@ -334,6 +362,106 @@ test("disables the composer while a model switch is warming", async () => {
   await waitFor(() => {
     expect(screen.getByText("Switched to qwen2.5:7b")).toBeInTheDocument();
   });
+});
+
+test("dismisses overlay sidebars on outside click and keeps docked rails beside the chat", async () => {
+  setWindowWidth(1100);
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [{ name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 }],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return new Response(
+        JSON.stringify({
+          sessions: [{ id: "sess_1", title: "Project notes", model: "llama3.1:8b", updatedAt: "2026-04-20T18:03:00Z" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1")) {
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "Project notes",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:03:00.000Z",
+            messages: [],
+            overrides: {}
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/settings/defaults")) {
+      return new Response(JSON.stringify({ defaults: { ...defaultAppDefaults } }), {
+        headers: { "content-type": "application/json" }
+      });
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  fireEvent.click((await screen.findAllByRole("button", { name: /expand sessions sidebar/i }))[0]!);
+  expect(await screen.findByRole("button", { name: /project notes/i })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /close sessions sidebar/i }));
+
+  await waitFor(() => {
+    expect(screen.queryByRole("button", { name: /project notes/i })).not.toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getAllByRole("button", { name: /expand settings sidebar/i })[0]!);
+  expect(screen.getByRole("button", { name: /close settings sidebar/i })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /close settings sidebar/i }));
+
+  await waitFor(() => {
+    expect(screen.queryByRole("button", { name: /close settings sidebar/i })).not.toBeInTheDocument();
+  });
+
+  setWindowWidth(1600);
+  fireEvent.click(screen.getAllByRole("button", { name: /expand sessions sidebar/i })[0]!);
+
+  await waitFor(() => {
+    expect(document.querySelector(".app-shell")?.className).toContain("left-docked");
+  });
+  expect(screen.queryByRole("button", { name: /close sessions sidebar/i })).not.toBeInTheDocument();
 });
 
 test("loads and saves app defaults and session overrides", async () => {

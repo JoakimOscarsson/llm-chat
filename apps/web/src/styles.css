@@ -45,6 +45,15 @@ button:disabled {
   gap: 16px;
   padding: 16px;
   position: relative;
+  overflow: hidden;
+}
+
+.app-shell.left-docked {
+  padding-left: 312px;
+}
+
+.app-shell.right-docked {
+  padding-right: 380px;
 }
 
 .sidebar,
@@ -77,6 +86,10 @@ button:disabled {
   position: absolute;
   inset: 16px auto 16px 16px;
   z-index: 3;
+  transform: translateX(calc(-100% - 28px));
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 220ms ease, opacity 180ms ease;
 }
 
 .utility-panel {
@@ -88,6 +101,10 @@ button:disabled {
   position: absolute;
   inset: 16px 16px 16px auto;
   z-index: 3;
+  transform: translateX(calc(100% + 28px));
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 220ms ease, opacity 180ms ease;
 }
 
 .chat-panel {
@@ -97,11 +114,46 @@ button:disabled {
   min-width: 0;
   width: min(100%, 980px);
   margin: 0 auto;
+  position: relative;
+  z-index: 1;
 }
 
-.sidebar.expanded,
-.utility-panel.expanded {
+.sidebar.open,
+.utility-panel.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sidebar.open {
+  transform: translateX(0);
+}
+
+.utility-panel.open {
+  transform: translateX(0);
+}
+
+.sidebar,
+.utility-panel {
   overflow: auto;
+}
+
+.rail-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border: 0;
+  background: rgba(226, 232, 240, 0.28);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  animation: fadeBackdrop 180ms ease forwards;
+}
+
+.rail-backdrop.left {
+  border-radius: 28px;
+}
+
+.rail-backdrop.right {
+  border-radius: 28px;
 }
 
 .panel-header,
@@ -226,12 +278,6 @@ h2 {
   letter-spacing: -0.03em;
 }
 
-.session-list,
-.transcript {
-  display: grid;
-  gap: 12px;
-}
-
 .sidebar-header {
   display: flex;
   align-items: center;
@@ -279,20 +325,51 @@ h2 {
   border-radius: 22px;
 }
 
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+  display: grid;
+  gap: 2px;
+  border-radius: 22px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(255, 255, 255, 0.64);
+  overflow: hidden;
+}
+
+.session-row + .session-row {
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
 .session-card {
+  width: 100%;
   display: grid;
   gap: 4px;
   padding: 14px 16px;
   color: inherit;
   text-align: left;
-  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  transition: background 120ms ease, transform 120ms ease;
 }
 
 .session-card:hover,
 .session-card[aria-pressed="true"] {
-  transform: translateY(-1px);
-  border-color: rgba(59, 130, 246, 0.22);
-  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.08);
+  transform: none;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.1);
+}
+
+.session-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.session-meta {
+  color: #64748b;
+  font-size: 0.77rem;
 }
 
 .message,
@@ -653,6 +730,16 @@ ul {
   }
 }
 
+@keyframes fadeBackdrop {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 @media (max-width: 1180px) {
   body {
     overflow: auto;
@@ -661,13 +748,13 @@ ul {
   .app-shell {
     grid-template-columns: 1fr;
     height: auto;
+    padding-left: 16px;
+    padding-right: 16px;
   }
 
   .sidebar,
   .utility-panel {
-    width: auto;
     padding: 20px;
-    position: static;
   }
 
   .chat-panel {
