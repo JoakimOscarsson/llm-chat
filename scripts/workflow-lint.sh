@@ -15,3 +15,23 @@ if grep -R -n -E 'uses: pnpm/action-setup@' "${ROOT_DIR}/.github/workflows" >/de
   echo "Remove pnpm/action-setup version pins from workflows; package.json already defines pnpm@10.0.0." >&2
   exit 1
 fi
+
+echo "Checking workflows that run pnpm also enable Corepack..."
+python3 - <<'PY' "${ROOT_DIR}"
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+failed = False
+
+for path in sorted((root / ".github" / "workflows").glob("*.yml")):
+    text = path.read_text()
+    if "pnpm " not in text:
+        continue
+    if "corepack enable" not in text:
+        print(f"{path}: runs pnpm commands but does not enable Corepack", file=sys.stderr)
+        failed = True
+
+if failed:
+    raise SystemExit(1)
+PY
