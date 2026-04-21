@@ -32,6 +32,8 @@ Implemented now:
 - Kubernetes Helm packaging with in-cluster Postgres and Redis
 - Local compose parity for the same runtime topology
 - Dockerized Helm validation in CI and the pre-push path
+- `kind`-based Kubernetes install plus Playwright E2E in GitHub Actions
+- Manual real-backend Kubernetes E2E workflow using GitHub Environment secrets
 
 Current limitations:
 
@@ -125,6 +127,7 @@ These commands are the shared validation path used locally, by the pre-push hook
 - `npm run ci:compose:smoke`
 - `npm run ci:docker:validate`
 - `npm run ci:docker:static-analysis`
+- `npm run test:e2e` for Playwright once a target app is already running
 
 Git hooks:
 
@@ -144,6 +147,28 @@ The Helm chart includes:
 - ingress with SSE-safe defaults
 - HPAs and PDBs for the scalable services
 - an optional Cloudflare Tunnel deployment path
+
+GitHub Actions also includes:
+
+- `.github/workflows/k8s-kind-e2e.yml`
+  Runs a self-contained `kind` deployment with stubbed Ollama and Playwright E2E on every PR and push to `main`.
+- `.github/workflows/k8s-real-backend-e2e.yml`
+  Manual real-backend cluster E2E using GitHub Environment secrets.
+
+## GitHub Secrets For Real-Backend E2E
+
+Upload the real-backend test secrets in GitHub here:
+
+1. Open your repository on GitHub.
+2. Go to `Settings`.
+3. Open `Environments`.
+4. Create an environment named `e2e-real`.
+5. Under `Environment secrets`, add:
+   - `OLLAMA_BASE_URL`
+   - `CF_ACCESS_CLIENT_ID`
+   - `CF_ACCESS_CLIENT_SECRET`
+
+The manual workflow `.github/workflows/k8s-real-backend-e2e.yml` is already configured to read those environment secrets.
 
 ## Docs
 

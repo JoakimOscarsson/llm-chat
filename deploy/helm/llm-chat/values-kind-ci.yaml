@@ -1,0 +1,40 @@
+ingress:
+  enabled: false
+
+cloudflareTunnel:
+  enabled: false
+
+ollama:
+  useStub: true
+  maxParallelRequests: 1
+  queuePromptAfterMs: 4000
+
+services:
+  web:
+    replicaCount: 1
+  api-gateway:
+    replicaCount: 1
+    autoscaling:
+      enabled: false
+  chat-service:
+    replicaCount: 1
+    autoscaling:
+      enabled: false
+  model-service:
+    replicaCount: 1
+  session-service:
+    replicaCount: 1
+    autoscaling:
+      enabled: false
+  metrics-service:
+    replicaCount: 1
+  ollama-adapter:
+    replicaCount: 1
+
+postgresql:
+  persistence:
+    enabled: false
+
+redis:
+  persistence:
+    enabled: false

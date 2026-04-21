@@ -1,0 +1,120 @@
+name: Kubernetes E2E
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  kind-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Setup kind
+        uses: engineerd/setup-kind@v0.6.2
+
+      - name: Build application image
+        run: docker build -f docker/runtime.Dockerfile -t llm-chat-e2e:ci .
+
+      - name: Create kind cluster
+        run: kind create cluster --name llm-chat --wait 120s
+
+      - name: Load image into kind
+        run: kind load docker-image llm-chat-e2e:ci --name llm-chat
+
+      - name: Build chart dependencies
+        run: helm dependency build deploy/helm/llm-chat
+
+      - name: Install chart into kind
+        run: |
+          helm upgrade --install llm-chat deploy/helm/llm-chat \
+            --namespace llm-chat \
+            --create-namespace \
+            -f deploy/helm/llm-chat/values-kind-ci.yaml \
+            --set image.repository=llm-chat-e2e \
+            --set image.tag=ci \
+            --set image.pullPolicy=IfNotPresent
+
+      - name: Wait for deployments
+        run: |
+          kubectl -n llm-chat wait --for=condition=ready pod -l app.kubernetes.io/component=postgresql --timeout=300s
+          kubectl -n llm-chat wait --for=condition=ready pod -l app.kubernetes.io/component=redis --timeout=300s
+          kubectl -n llm-chat wait --for=condition=available deployment --all --timeout=300s
+
+      - name: Port-forward web service
+        run: |
+          kubectl -n llm-chat port-forward svc/llm-chat-llm-chat-web 3000:80 >/tmp/llm-chat-port-forward.log 2>&1 &
+          echo $! >/tmp/llm-chat-port-forward.pid
+
+      - name: Wait for web endpoint
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000 >/tmp/llm-chat-e2e-home.html; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for the port-forwarded web endpoint." >&2
+          exit 1
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run Playwright E2E against kind
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+        run: pnpm test:e2e
+
+      - name: Collect Kubernetes diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n llm-chat get all -o wide
+          kubectl -n llm-chat describe pods
+          kubectl -n llm-chat logs deployment/llm-chat-llm-chat-web --tail=200 || true
+          kubectl -n llm-chat logs deployment/llm-chat-llm-chat-api-gateway --tail=200 || true
+          kubectl -n llm-chat logs deployment/llm-chat-llm-chat-chat-service --tail=200 || true
+          kubectl -n llm-chat logs deployment/llm-chat-llm-chat-session-service --tail=200 || true
+          kubectl -n llm-chat logs deployment/llm-chat-llm-chat-ollama-adapter --tail=200 || true
+          cat /tmp/llm-chat-port-forward.log || true
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-kind-report
+          path: |
+            playwright-report
+            test-results
+            /tmp/llm-chat-port-forward.log
+          if-no-files-found: ignore
+
+      - name: Delete kind cluster
+        if: always()
+        run: kind delete cluster --name llm-chat

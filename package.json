@@ -13,7 +13,11 @@
     "dev": "pnpm --filter @llm-chat-app/web dev",
     "hooks:install": "git config core.hooksPath .githooks",
     "lint": "pnpm -r lint",
+    "test:e2e": "playwright test -c e2e/playwright.config.ts",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.2"
   }
 }
