@@ -815,6 +815,224 @@ test("loads and saves app defaults and session overrides", async () => {
   expect(requests.find((request) => request.url.endsWith("/api/sessions/sess_1"))?.body).toContain('"requestHistoryCount":2');
 });
 
+test("clears optional defaults and session overrides instead of preserving stale values", async () => {
+  const requests: Array<{ url: string; body: string }> = [];
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [{ name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 }],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          ready: true,
+          model: "llama3.1:8b",
+          warmedAt: "2026-04-20T18:04:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return new Response(
+        JSON.stringify({
+          sessions: [{ id: "sess_1", title: "Existing chat", model: "llama3.1:8b", updatedAt: "2026-04-20T18:03:00Z" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1")) {
+      if (init?.method === "PATCH") {
+        requests.push({ url, body: String(init.body ?? "") });
+        return new Response(
+          JSON.stringify({
+            session: {
+              id: "sess_1",
+              title: "Existing chat",
+              model: "llama3.1:8b",
+              createdAt: "2026-04-20T18:00:00.000Z",
+              updatedAt: "2026-04-20T18:03:00.000Z",
+              messages: [],
+              overrides: {}
+            }
+          }),
+          { headers: { "content-type": "application/json" } }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "Existing chat",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:03:00.000Z",
+            messages: [],
+            overrides: {
+              seed: 7,
+              keep_alive: "30m"
+            }
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "ok" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/settings/defaults")) {
+      if (init?.method === "PUT") {
+        requests.push({ url, body: String(init.body ?? "") });
+        return new Response(String(init.body ?? ""), { headers: { "content-type": "application/json" } });
+      }
+
+      return new Response(
+        JSON.stringify({
+          defaults: {
+            ...defaultAppDefaults,
+            options: {
+              ...defaultAppDefaults.options,
+              seed: 99,
+              keep_alive: "1h"
+            }
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  fireEvent.click((await screen.findAllByRole("button", { name: /expand settings sidebar/i }))[0]!);
+  fireEvent.click(screen.getByText("App defaults"));
+  fireEvent.change(screen.getByLabelText("Seed"), { target: { value: "" } });
+  fireEvent.change(screen.getByLabelText("Keep alive"), { target: { value: "" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save defaults" }));
+
+  await waitFor(() => {
+    expect(requests.some((request) => request.url.endsWith("/api/settings/defaults"))).toBe(true);
+  });
+
+  fireEvent.click(screen.getByText("Session overrides"));
+  fireEvent.change(screen.getByLabelText("Seed override"), { target: { value: "" } });
+  fireEvent.change(screen.getByLabelText("Keep alive override"), { target: { value: "" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save session" }));
+
+  await waitFor(() => {
+    expect(requests.some((request) => request.url.endsWith("/api/sessions/sess_1"))).toBe(true);
+  });
+
+  const defaultsBody = requests.find((request) => request.url.endsWith("/api/settings/defaults"))?.body ?? "";
+  const overridesBody = requests.find((request) => request.url.endsWith("/api/sessions/sess_1"))?.body ?? "";
+
+  expect(defaultsBody).not.toContain('"seed"');
+  expect(defaultsBody).not.toContain('"keep_alive"');
+  expect(overridesBody).toContain('"overrides":{}');
+});
+
+test("keeps the app usable when sessions or health fail during bootstrap", async () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [{ name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 }],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          ready: true,
+          model: "llama3.1:8b",
+          warmedAt: "2026-04-20T18:04:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      throw new Error("session service offline");
+    }
+
+    if (url.endsWith("/api/health")) {
+      throw new Error("gateway health unavailable");
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "request_failed"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/settings/defaults")) {
+      return new Response(
+        JSON.stringify({
+          defaults: defaultAppDefaults
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  fireEvent.click((await screen.findAllByRole("button", { name: /expand settings sidebar/i }))[0]!);
+  fireEvent.click(await screen.findByText("System status"));
+
+  await waitFor(() => {
+    expect(screen.getAllByText("Gateway degraded").length).toBeGreaterThan(0);
+  });
+
+  expect(screen.getByPlaceholderText("Send a message to the model...")).not.toBeDisabled();
+  expect(screen.getByText("Start a new conversation when you’re ready.")).toBeInTheDocument();
+});
+
 test("creates a new session from the active model", async () => {
   const requests: Array<{ url: string; body: string }> = [];
 

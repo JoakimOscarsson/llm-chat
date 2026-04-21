@@ -63,9 +63,13 @@ async function fetchDefaults(config: ApiGatewayConfig, fetchImpl: typeof fetch) 
 }
 
 async function fetchServiceStatus(url: string, fetchImpl: typeof fetch) {
-  const response = await fetchImpl(`${url}/health`);
-  const payload = (await response.json()) as { status?: string };
-  return payload.status === "ok" ? "ok" : "degraded";
+  try {
+    const response = await fetchImpl(`${url}/health`);
+    const payload = (await response.json()) as { status?: string };
+    return payload.status === "ok" ? "ok" : "degraded";
+  } catch {
+    return "degraded";
+  }
 }
 
 export function createApp(options: CreateAppOptions = {}): FastifyInstance {
@@ -84,16 +88,22 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     version: "0.1.0"
   }));
 
-  app.get("/api/health", async () => ({
-    status: "ok",
-    service: "api-gateway",
-    dependencies: {
+  app.get("/api/health", async () => {
+    const dependencies = {
       chatService: await fetchServiceStatus(config.chatServiceUrl, fetchImpl),
       modelService: await fetchServiceStatus(config.modelServiceUrl, fetchImpl),
       sessionService: await fetchServiceStatus(config.sessionServiceUrl, fetchImpl),
       metricsService: await fetchServiceStatus(config.metricsServiceUrl, fetchImpl)
-    }
-  }));
+    };
+
+    const status = Object.values(dependencies).every((dependency) => dependency === "ok") ? "ok" : "degraded";
+
+    return {
+      status,
+      service: "api-gateway",
+      dependencies
+    };
+  });
 
   app.get("/version", async () => ({
     service: "api-gateway",

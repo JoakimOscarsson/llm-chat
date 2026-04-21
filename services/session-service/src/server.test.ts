@@ -155,6 +155,24 @@ test("PATCH /internal/sessions/:sessionId updates overrides and context shaping"
     }
   ]);
   assert.equal(contextResponse.json().overrides.num_ctx, 2048);
+
+  const clearResponse = await app.inject({
+    method: "PATCH",
+    url: "/internal/sessions/sess_1",
+    payload: {
+      overrides: {}
+    }
+  });
+
+  assert.equal(clearResponse.statusCode, 200);
+  assert.deepEqual(clearResponse.json().session.overrides, {});
+
+  const clearedContextResponse = await app.inject({
+    method: "GET",
+    url: "/internal/sessions/sess_1/context"
+  });
+
+  assert.deepEqual(clearedContextResponse.json().overrides, {});
 });
 
 test("POST /internal/sessions/:sessionId/model-switch persists a marker and updates the active model", async () => {

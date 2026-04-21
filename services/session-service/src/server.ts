@@ -218,7 +218,8 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       ...session,
       title: payload.title ?? session.title,
       model: payload.model ?? session.model,
-      overrides: payload.overrides ? { ...session.overrides, ...payload.overrides } : session.overrides,
+      // Session overrides should reflect the latest saved form exactly so fields can be cleared.
+      overrides: payload.overrides ?? session.overrides,
       updatedAt: fixedNow
     };
 

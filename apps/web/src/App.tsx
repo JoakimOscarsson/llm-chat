@@ -236,6 +236,19 @@ function parseStopSequences(value: string) {
     .filter(Boolean);
 }
 
+function sortSessionsDescending(sessionList: SessionSummary[]) {
+  return [...sessionList].sort((left, right) => {
+    const leftTimestamp = Date.parse(left.updatedAt);
+    const rightTimestamp = Date.parse(right.updatedAt);
+
+    if (Number.isNaN(leftTimestamp) || Number.isNaN(rightTimestamp)) {
+      return right.updatedAt.localeCompare(left.updatedAt);
+    }
+
+    return rightTimestamp - leftTimestamp;
+  });
+}
+
 async function readResponseError(response: Response) {
   const raw = await response.text();
 
@@ -490,6 +503,71 @@ export function App() {
     return modelsPayload.models;
   };
 
+  const loadHealth = async () => {
+    try {
+      const healthResponse = await fetch(`${apiBaseUrl}/api/health`);
+      if (!healthResponse.ok) {
+        throw new Error(await readResponseError(healthResponse));
+      }
+
+      const payload = (await healthResponse.json()) as HealthResponse;
+      setHealth(payload);
+      return payload;
+    } catch {
+      const fallback: HealthResponse = {
+        status: "degraded",
+        service: "api-gateway",
+        dependencies: {
+          chatService: "degraded",
+          modelService: "degraded",
+          sessionService: "degraded",
+          metricsService: "degraded"
+        }
+      };
+      setHealth(fallback);
+      return fallback;
+    }
+  };
+
+  const loadSessions = async () => {
+    const sessionsResponse = await fetch(`${apiBaseUrl}/api/sessions`);
+    if (!sessionsResponse.ok) {
+      throw new Error(await readResponseError(sessionsResponse));
+    }
+
+    const sessionsPayload = (await sessionsResponse.json()) as { sessions: SessionSummary[] };
+    const ordered = sortSessionsDescending(sessionsPayload.sessions);
+    setSessions(ordered);
+    return ordered;
+  };
+
+  const loadDefaults = async () => {
+    const defaultsResponse = await fetch(`${apiBaseUrl}/api/settings/defaults`);
+    if (!defaultsResponse.ok) {
+      throw new Error(await readResponseError(defaultsResponse));
+    }
+
+    const defaultsPayload = (await defaultsResponse.json()) as { defaults: AppDefaults };
+
+    setDefaults(defaultsPayload.defaults);
+    setDefaultSystemPrompt(defaultsPayload.defaults.systemPrompt);
+    setDefaultRequestHistoryCount(String(defaultsPayload.defaults.requestHistoryCount));
+    setDefaultResponseHistoryCount(String(defaultsPayload.defaults.responseHistoryCount));
+    setDefaultTemperature(String(defaultsPayload.defaults.options.temperature));
+    setDefaultTopK(String(defaultsPayload.defaults.options.top_k));
+    setDefaultTopP(String(defaultsPayload.defaults.options.top_p));
+    setDefaultRepeatPenalty(String(defaultsPayload.defaults.options.repeat_penalty));
+    setDefaultSeed(defaultsPayload.defaults.options.seed !== undefined ? String(defaultsPayload.defaults.options.seed) : "");
+    setDefaultNumCtx(String(defaultsPayload.defaults.options.num_ctx));
+    setDefaultNumPredict(String(defaultsPayload.defaults.options.num_predict));
+    setDefaultStop(defaultsPayload.defaults.options.stop.join("\n"));
+    setDefaultKeepAlive(
+      defaultsPayload.defaults.options.keep_alive !== undefined ? String(defaultsPayload.defaults.options.keep_alive) : ""
+    );
+    setDefaultStreamThinking(defaultsPayload.defaults.streamThinking);
+    return defaultsPayload.defaults;
+  };
+
   const loadMetrics = async () => {
     try {
       const response = await fetch(`${apiBaseUrl}/api/metrics/gpu`);
@@ -587,84 +665,69 @@ export function App() {
     let active = true;
 
     const loadData = async () => {
-      try {
-        const [modelsPayload, sessionsResponse, healthResponse, metricsPayload] = await Promise.all([
-          loadModels(),
-          fetch(`${apiBaseUrl}/api/sessions`),
-          fetch(`${apiBaseUrl}/api/health`),
-          loadMetrics()
-        ]);
-        const sessionsPayload = (await sessionsResponse.json()) as { sessions: SessionSummary[] };
-        const healthPayload = (await healthResponse.json()) as HealthResponse;
+      const [modelsResult, sessionsResult, healthResult, metricsResult, defaultsResult] = await Promise.allSettled([
+        loadModels(),
+        loadSessions(),
+        loadHealth(),
+        loadMetrics(),
+        loadDefaults()
+      ]);
 
-        if (!active) {
-          return;
-        }
+      if (!active) {
+        return;
+      }
 
-        const initialSessionId = sessionsPayload.sessions[0]?.id ?? null;
-        const initialModel = pickAvailableModel("", modelsPayload, sessionsPayload.sessions[0]?.model);
+      const modelsPayload = modelsResult.status === "fulfilled" ? modelsResult.value : [];
+      const sessionsPayload = sessionsResult.status === "fulfilled" ? sessionsResult.value : [];
 
-        setSessions(sessionsPayload.sessions);
-        setHealth(healthPayload);
-        setMetrics(metricsPayload);
-        setSelectedSessionId((current) => current ?? initialSessionId);
-        setSelectedModel(initialModel);
+      if (defaultsResult.status !== "fulfilled") {
+        setDefaultsStatus("Using fallback defaults");
+      }
 
-        if (initialModel) {
-          setIsModelSwitching(true);
-          setStatusText(`Loading ${initialModel}...`);
-          setLiveThinking(`Preloading ${initialModel} before chat starts.`);
+      if (healthResult.status !== "fulfilled") {
+        setStatusText("Gateway degraded");
+      }
 
-          try {
-            await warmModel(initialModel);
+      if (metricsResult.status !== "fulfilled") {
+        setMetrics({
+          status: "unavailable",
+          sampledAt: new Date().toISOString(),
+          reason: "request_failed"
+        });
+      }
 
-            if (!active) {
-              return;
-            }
+      const initialSessionId = sessionsPayload[0]?.id ?? null;
+      const initialModel = pickAvailableModel("", modelsPayload, sessionsPayload[0]?.model);
 
-            setStatusText(`${initialModel} ready`);
-            setLiveThinking(`Model ${initialModel} is loaded and ready.`);
-          } catch (error) {
-            if (!active) {
-              return;
-            }
+      setSelectedSessionId((current) => current ?? initialSessionId);
+      setSelectedModel(initialModel);
 
-            setStatusText("Initial model load failed");
-            setLiveThinking(error instanceof Error ? error.message : `Could not load ${initialModel}.`);
-          } finally {
-            if (active) {
-              setIsModelSwitching(false);
-            }
+      if (initialModel) {
+        setIsModelSwitching(true);
+        setStatusText(`Loading ${initialModel}...`);
+        setLiveThinking(`Preloading ${initialModel} before chat starts.`);
+
+        try {
+          await warmModel(initialModel);
+
+          if (!active) {
+            return;
+          }
+
+          setStatusText(`${initialModel} ready`);
+          setLiveThinking(`Model ${initialModel} is loaded and ready.`);
+        } catch (error) {
+          if (!active) {
+            return;
+          }
+
+          setStatusText("Initial model load failed");
+          setLiveThinking(error instanceof Error ? error.message : `Could not load ${initialModel}.`);
+        } finally {
+          if (active) {
+            setIsModelSwitching(false);
           }
         }
-
-        const defaultsResponse = await fetch(`${apiBaseUrl}/api/settings/defaults`);
-        const defaultsPayload = (await defaultsResponse.json()) as { defaults: AppDefaults };
-
-        if (!active) {
-          return;
-        }
-
-        setDefaults(defaultsPayload.defaults);
-        setDefaultSystemPrompt(defaultsPayload.defaults.systemPrompt);
-        setDefaultRequestHistoryCount(String(defaultsPayload.defaults.requestHistoryCount));
-        setDefaultResponseHistoryCount(String(defaultsPayload.defaults.responseHistoryCount));
-        setDefaultTemperature(String(defaultsPayload.defaults.options.temperature));
-        setDefaultTopK(String(defaultsPayload.defaults.options.top_k));
-        setDefaultTopP(String(defaultsPayload.defaults.options.top_p));
-        setDefaultRepeatPenalty(String(defaultsPayload.defaults.options.repeat_penalty));
-        setDefaultSeed(
-          defaultsPayload.defaults.options.seed !== undefined ? String(defaultsPayload.defaults.options.seed) : ""
-        );
-        setDefaultNumCtx(String(defaultsPayload.defaults.options.num_ctx));
-        setDefaultNumPredict(String(defaultsPayload.defaults.options.num_predict));
-        setDefaultStop(defaultsPayload.defaults.options.stop.join("\n"));
-        setDefaultKeepAlive(
-          defaultsPayload.defaults.options.keep_alive !== undefined ? String(defaultsPayload.defaults.options.keep_alive) : ""
-        );
-        setDefaultStreamThinking(defaultsPayload.defaults.streamThinking);
-      } catch {
-        setDefaultsStatus("Using fallback defaults");
       }
     };
 
@@ -1134,13 +1197,12 @@ export function App() {
 
     const payload = {
       defaults: {
-        ...defaults,
         systemPrompt: defaultSystemPrompt,
         requestHistoryCount: Number(defaultRequestHistoryCount),
         responseHistoryCount: Number(defaultResponseHistoryCount),
         streamThinking: defaultStreamThinking,
+        persistSessions: defaults.persistSessions,
         options: {
-          ...defaults.options,
           temperature: Number(defaultTemperature),
           top_k: Number(defaultTopK),
           top_p: Number(defaultTopP),
@@ -1317,16 +1379,7 @@ export function App() {
     metrics?.status === "ok" || metrics?.status === "stale"
       ? `${metrics.gpu.usedMb.toFixed(0)} MB / ${metrics.gpu.totalMb.toFixed(0)} MB`
       : "Metrics unavailable";
-  const orderedSessions = [...sessions].sort((left, right) => {
-    const leftTimestamp = Date.parse(left.updatedAt);
-    const rightTimestamp = Date.parse(right.updatedAt);
-
-    if (Number.isNaN(leftTimestamp) || Number.isNaN(rightTimestamp)) {
-      return right.updatedAt.localeCompare(left.updatedAt);
-    }
-
-    return rightTimestamp - leftTimestamp;
-  });
+  const orderedSessions = sortSessionsDescending(sessions);
 
   return (
     <div className="app-shell">

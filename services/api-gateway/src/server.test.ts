@@ -510,6 +510,52 @@ test("GET /api/health aggregates downstream service health", async () => {
   });
 });
 
+test("GET /api/health degrades cleanly when a downstream health check fails", async () => {
+  const app = createApp({
+    config: {
+      port: 4000,
+      chatServiceUrl: "http://chat-service:4001",
+      modelServiceUrl: "http://model-service:4002",
+      sessionServiceUrl: "http://session-service:4003",
+      metricsServiceUrl: "http://metrics-service:4004"
+    },
+    fetchImpl: async (input) => {
+      const url = String(input);
+
+      if (url === "http://chat-service:4001/health") {
+        throw new Error("chat service offline");
+      }
+
+      if (url.endsWith("/health")) {
+        return new Response(JSON.stringify({ status: "ok" }), {
+          headers: {
+            "content-type": "application/json"
+          }
+        });
+      }
+
+      throw new Error(`Unexpected url: ${url}`);
+    }
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/health"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), {
+    status: "degraded",
+    service: "api-gateway",
+    dependencies: {
+      chatService: "degraded",
+      modelService: "ok",
+      sessionService: "ok",
+      metricsService: "ok"
+    }
+  });
+});
+
 test("GET /api/metrics/gpu proxies the metrics service response", async () => {
   const app = createApp({
     config: {
