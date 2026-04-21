@@ -484,6 +484,7 @@ h2 {
 .thinking-box {
   min-height: 0;
   height: 148px;
+  max-height: min(34vh, 280px);
   resize: vertical;
   overflow: hidden;
 }

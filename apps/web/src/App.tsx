@@ -1394,6 +1394,7 @@ export function App() {
       <aside
         aria-hidden={!leftSidebarOpen}
         className={`sidebar ${leftSidebarMode} ${leftSidebarOpen ? "open" : ""}`}
+        inert={!leftSidebarOpen}
       >
           <div className="sidebar-header">
             <div>
@@ -1583,6 +1584,7 @@ export function App() {
       <aside
         aria-hidden={!rightSidebarOpen}
         className={`utility-panel ${rightSidebarMode} ${rightSidebarOpen ? "open" : ""}`}
+        inert={!rightSidebarOpen}
       >
           <div className="sidebar-header">
             <div>

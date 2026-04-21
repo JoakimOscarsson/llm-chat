@@ -579,21 +579,28 @@ test("dismisses overlay sidebars on outside click and keeps docked rails beside 
 
   render(<App />);
 
+  expect(document.querySelector(".sidebar")).toHaveAttribute("inert");
+  expect(document.querySelector(".utility-panel")).toHaveAttribute("inert");
+
   fireEvent.click((await screen.findAllByRole("button", { name: /expand sessions sidebar/i }))[0]!);
   expect(await screen.findByRole("button", { name: /project notes/i })).toBeInTheDocument();
+  expect(document.querySelector(".sidebar")).not.toHaveAttribute("inert");
   fireEvent.click(screen.getByRole("button", { name: /close sessions sidebar/i }));
 
   await waitFor(() => {
     expect(screen.queryByRole("button", { name: /project notes/i })).not.toBeInTheDocument();
   });
+  expect(document.querySelector(".sidebar")).toHaveAttribute("inert");
 
   fireEvent.click(screen.getAllByRole("button", { name: /expand settings sidebar/i })[0]!);
   expect(screen.getByRole("button", { name: /close settings sidebar/i })).toBeInTheDocument();
+  expect(document.querySelector(".utility-panel")).not.toHaveAttribute("inert");
   fireEvent.click(screen.getByRole("button", { name: /close settings sidebar/i }));
 
   await waitFor(() => {
     expect(screen.queryByRole("button", { name: /close settings sidebar/i })).not.toBeInTheDocument();
   });
+  expect(document.querySelector(".utility-panel")).toHaveAttribute("inert");
 
   setWindowWidth(1600);
   fireEvent.click(screen.getAllByRole("button", { name: /expand sessions sidebar/i })[0]!);
@@ -601,6 +608,7 @@ test("dismisses overlay sidebars on outside click and keeps docked rails beside 
   await waitFor(() => {
     expect(document.querySelector(".sidebar")?.className).toContain("docked open");
   });
+  expect(document.querySelector(".sidebar")).not.toHaveAttribute("inert");
   expect(screen.queryByRole("button", { name: /close sessions sidebar/i })).not.toBeInTheDocument();
 });
 
