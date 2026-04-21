@@ -10,6 +10,8 @@ import type { SessionMessage, SessionRecord, SessionStore } from "../store.js";
 type Queryable = Pick<Pool, "query"> | Pick<PoolClient, "query">;
 
 const migrationsDir = fileURLToPath(new URL("../../migrations", import.meta.url));
+const initRetryDelayMs = 500;
+const initRetryAttempts = 12;
 
 function toIsoString(value: Date | string) {
   return value instanceof Date ? value.toISOString() : value;
@@ -40,6 +42,55 @@ function parseJsonValue<T>(value: unknown, fallback: T): T {
   }
 
   return value as T;
+}
+
+function isRetryableInitError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const code = "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  const message = error.message.toLowerCase();
+
+  return (
+    code === "ENOTFOUND" ||
+    code === "EAI_AGAIN" ||
+    code === "ECONNREFUSED" ||
+    code === "57P03" ||
+    code === "ETIMEDOUT" ||
+    message.includes("getaddrinfo enotfound") ||
+    message.includes("connection refused") ||
+    message.includes("the database system is starting up") ||
+    message.includes("timeout")
+  );
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withInitRetry<T>(operation: () => Promise<T>) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= initRetryAttempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+
+      if (!isRetryableInitError(error) || attempt === initRetryAttempts) {
+        throw error;
+      }
+
+      console.warn(
+        `[session-service] Postgres init attempt ${attempt}/${initRetryAttempts} failed, retrying in ${initRetryDelayMs}ms`,
+        error
+      );
+      await sleep(initRetryDelayMs);
+    }
+  }
+
+  throw lastError;
 }
 
 function mapMessageRow(row: {
@@ -168,7 +219,7 @@ export function createPostgresSessionStore(config: { connectionString: string } 
   return {
     async init() {
       if (!initPromise) {
-        initPromise = (async () => {
+        initPromise = withInitRetry(async () => {
           await applyMigrations(pool);
           await pool.query(
             `INSERT INTO app_defaults (id, payload, updated_at)
@@ -182,7 +233,7 @@ export function createPostgresSessionStore(config: { connectionString: string } 
              ON CONFLICT (id) DO NOTHING`,
             [initialSession.id, initialSession.title, initialSession.model, initialSession.createdAt, initialSession.updatedAt, JSON.stringify({})]
           );
-        })().catch((error) => {
+        }).catch((error) => {
           initPromise = null;
           throw error;
         });

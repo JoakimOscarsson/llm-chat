@@ -6,3 +6,6 @@ npm run ci:docker
 
 echo "Running Helm packaging validation before push..."
 npm run ci:helm
+
+echo "Running compose startup smoke test before push..."
+npm run ci:compose:smoke

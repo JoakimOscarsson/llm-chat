@@ -158,3 +158,51 @@ test("postgres store preserves assistant thinking content", async (t) => {
     }
   ]);
 });
+
+test("postgres store init retries transient DNS failures", async () => {
+  let attempts = 0;
+  const pool = {
+    async query(sql: string) {
+      attempts += 1;
+
+      if (attempts <= 2) {
+        const error = new Error("getaddrinfo ENOTFOUND postgres") as Error & { code: string };
+        error.code = "ENOTFOUND";
+        throw error;
+      }
+
+      if (sql.includes("SELECT EXISTS")) {
+        return { rows: [{ exists: false }] };
+      }
+
+      if (sql.includes("SELECT version FROM session_service_migrations")) {
+        return { rows: [] };
+      }
+
+      return { rows: [], rowCount: 0 };
+    }
+  };
+
+  const store = createPostgresSessionStore({ pool: pool as never });
+
+  await store.init();
+
+  assert.ok(attempts >= 3);
+});
+
+test("postgres store init does not retry non-retryable failures", async () => {
+  let attempts = 0;
+  const pool = {
+    async query() {
+      attempts += 1;
+      const error = new Error("syntax error at or near SELECT") as Error & { code: string };
+      error.code = "42601";
+      throw error;
+    }
+  };
+
+  const store = createPostgresSessionStore({ pool: pool as never });
+
+  await assert.rejects(store.init(), /syntax error/i);
+  assert.equal(attempts, 1);
+});

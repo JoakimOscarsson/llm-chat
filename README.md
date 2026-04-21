@@ -122,6 +122,7 @@ These commands are the shared validation path used locally, by the pre-push hook
 
 - `npm run ci:docker`
 - `npm run ci:helm`
+- `npm run ci:compose:smoke`
 - `npm run ci:docker:validate`
 - `npm run ci:docker:static-analysis`
 
