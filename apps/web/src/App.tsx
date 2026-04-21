@@ -334,6 +334,7 @@ export function App() {
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
   const [thinkingOpen, setThinkingOpen] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [models, setModels] = useState<ModelSummary[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -384,6 +385,25 @@ export function App() {
   const composerFormRef = useRef<HTMLFormElement | null>(null);
   const transcriptRef = useRef<HTMLElement | null>(null);
   const thinkingScrollRef = useRef<HTMLDivElement | null>(null);
+  const modelMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const pickAvailableModel = (
+    preferredModel: string | null | undefined,
+    availableModels: ModelSummary[],
+    fallbackModel?: string | null
+  ) => {
+    const availableNames = new Set(availableModels.map((model) => model.name));
+
+    if (preferredModel && availableNames.has(preferredModel)) {
+      return preferredModel;
+    }
+
+    if (fallbackModel && availableNames.has(fallbackModel)) {
+      return fallbackModel;
+    }
+
+    return availableModels[0]?.name ?? "";
+  };
 
   const loadModels = async () => {
     const modelsResponse = await fetch(`${apiBaseUrl}/api/models`);
@@ -415,7 +435,7 @@ export function App() {
       const payload = (await response.json()) as { session: SessionDetail };
       setActiveSession(payload.session);
       setMessages((current) => (current.length === 0 ? mapSessionMessagesToTranscript(payload.session) : current));
-      setSelectedModel(payload.session.model);
+      setSelectedModel((current) => pickAvailableModel(payload.session.model, models, current));
       setOverrideSystemPrompt(payload.session.overrides?.systemPrompt ?? "");
       setOverrideRequestHistoryCount(
         payload.session.overrides?.requestHistoryCount !== undefined ? String(payload.session.overrides.requestHistoryCount) : ""
@@ -472,7 +492,7 @@ export function App() {
       setHealth(healthPayload);
       setMetrics(metricsPayload);
       setSelectedSessionId((current) => current ?? sessionsPayload.sessions[0]?.id ?? null);
-      setSelectedModel((current) => current || sessionsPayload.sessions[0]?.model || modelsPayload[0]?.name || "");
+      setSelectedModel((current) => pickAvailableModel(current, modelsPayload, sessionsPayload.sessions[0]?.model));
 
       try {
         const defaultsResponse = await fetch(`${apiBaseUrl}/api/settings/defaults`);
@@ -529,6 +549,30 @@ export function App() {
     setMessages([]);
     void loadSessionDetail(selectedSessionId);
   }, [selectedSessionId]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!modelMenuRef.current?.contains(event.target as Node)) {
+        setModelMenuOpen(false);
+      }
+    };
+
+    if (modelMenuOpen) {
+      window.addEventListener("pointerdown", handlePointerDown);
+    }
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [modelMenuOpen]);
+
+  useEffect(() => {
+    if (!models.length) {
+      return;
+    }
+
+    setSelectedModel((current) => pickAvailableModel(current, models, activeSession?.model ?? sessions[0]?.model ?? null));
+  }, [models, activeSession?.model, sessions]);
 
   useEffect(() => {
     const transcript = transcriptRef.current;
@@ -787,7 +831,7 @@ export function App() {
 
   const handleRefreshModels = async () => {
     const refreshedModels = await loadModels();
-    setSelectedModel((current) => current || refreshedModels[0]?.name || "");
+    setSelectedModel((current) => pickAvailableModel(current, refreshedModels, activeSession?.model ?? sessions[0]?.model ?? null));
   };
 
   const handleCreateSession = async () => {
@@ -1059,17 +1103,26 @@ export function App() {
             <h2>{selectedModel || "Loading models..."}</h2>
           </div>
           <div className="header-actions">
-            <details className="model-menu">
-              <summary className="icon-button" aria-label="Models">
+            <div className="model-menu" ref={modelMenuRef}>
+              <button
+                aria-expanded={modelMenuOpen}
+                aria-label="Models"
+                className="icon-button"
+                type="button"
+                onClick={() => setModelMenuOpen((current) => !current)}
+              >
                 <ModelIcon />
-              </summary>
-              <div className="model-menu-card">
+              </button>
+              <div className={`model-menu-card ${modelMenuOpen ? "open" : ""}`}>
                 <label className="model-select-label">
                   <span className="eyebrow">Choose model</span>
                   <select
                     aria-label="Model selector"
                     className="model-select"
-                    onChange={(event) => setSelectedModel(event.target.value)}
+                    onChange={(event) => {
+                      setSelectedModel(event.target.value);
+                      setModelMenuOpen(false);
+                    }}
                     value={selectedModel}
                   >
                     {models.map((model) => (
@@ -1083,7 +1136,7 @@ export function App() {
                   Refresh models
                 </button>
               </div>
-            </details>
+            </div>
             <IconButton label={rightSidebarOpen ? "Collapse settings sidebar" : "Expand settings sidebar"} onClick={() => setRightSidebarOpen((current) => !current)} expanded={rightSidebarOpen}>
               <ControlsIcon />
             </IconButton>

@@ -95,6 +95,8 @@ button:disabled {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 18px;
   min-width: 0;
+  width: min(100%, 980px);
+  margin: 0 auto;
 }
 
 .sidebar.expanded,
@@ -123,6 +125,7 @@ button:disabled {
 
 .panel-title {
   text-align: center;
+  justify-self: center;
 }
 
 .panel-subtitle {
@@ -301,14 +304,6 @@ h2 {
   position: relative;
 }
 
-.model-menu > summary {
-  list-style: none;
-}
-
-.model-menu > summary::-webkit-details-marker {
-  display: none;
-}
-
 .model-menu-card {
   position: absolute;
   top: calc(100% + 10px);
@@ -323,6 +318,16 @@ h2 {
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
   backdrop-filter: blur(24px);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.model-menu-card.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 .widget-summary {
@@ -406,20 +411,23 @@ h2 {
   overflow: auto;
   min-height: 0;
   padding-right: 4px;
+  gap: 8px;
 }
 
 .message {
   display: grid;
-  gap: 12px;
+  gap: 8px;
   position: relative;
   max-width: min(72%, 560px);
   border-radius: 22px;
+  padding: 12px 14px;
 }
 
 .empty-state {
   border-style: dashed;
   color: #64748b;
   max-width: 100%;
+  padding: 18px;
 }
 
 .user-message {
@@ -460,11 +468,12 @@ h2 {
 }
 
 .thinking-trace {
-  margin-top: 4px;
+  margin-top: 2px;
   border-left: 3px solid rgba(59, 130, 246, 0.25);
   color: #64748b;
   padding-left: 12px;
   white-space: pre-wrap;
+  font-size: 0.92rem;
 }
 
 details summary {
@@ -475,6 +484,7 @@ details summary {
 
 .markdown-body {
   color: #111827;
+  font-size: 0.96rem;
 }
 
 .markdown-body > * + * {

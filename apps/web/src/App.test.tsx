@@ -44,7 +44,7 @@ test("renders discovered models from the gateway", async () => {
             {
               id: "sess_1",
               title: "Troubleshooting nginx config",
-              model: "llama3.1:8b",
+              model: "missing-model:latest",
               updatedAt: "2026-04-20T18:03:00Z"
             }
           ]
@@ -97,7 +97,7 @@ test("renders discovered models from the gateway", async () => {
 
   render(<App />);
 
-  fireEvent.click(screen.getByRole("button", { name: /models/i }));
+  fireEvent.click(screen.getAllByRole("button", { name: /models/i })[0]!);
 
   await waitFor(() => {
     expect(screen.getByRole("combobox", { name: /model selector/i })).toHaveValue("llama3.1:8b");
@@ -112,6 +112,14 @@ test("renders discovered models from the gateway", async () => {
   expect(screen.getAllByText("Metrics unavailable").length).toBeGreaterThan(0);
   expect(screen.getByText("Start a new conversation when you’re ready.")).toBeInTheDocument();
   expect(screen.queryByText("How should this chat app be structured?")).not.toBeInTheDocument();
+
+  fireEvent.change(screen.getByRole("combobox", { name: /model selector/i }), {
+    target: { value: "qwen2.5:7b" }
+  });
+
+  await waitFor(() => {
+    expect(screen.getAllByRole("button", { name: /models/i })[0]).toHaveAttribute("aria-expanded", "false");
+  });
 });
 
 test("loads and saves app defaults and session overrides", async () => {
@@ -260,7 +268,7 @@ test("loads and saves app defaults and session overrides", async () => {
     expect(requests.some((request) => request.url.endsWith("/api/settings/defaults"))).toBe(true);
   });
 
-  fireEvent.click(screen.getByRole("button", { name: /models/i }));
+  fireEvent.click(screen.getAllByRole("button", { name: /models/i })[0]!);
   fireEvent.change(screen.getByRole("combobox", { name: /model selector/i }), {
     target: { value: "llama3.1:8b" }
   });
