@@ -50,3 +50,14 @@ jobs:
 
       - name: Run compose startup smoke test
         run: npm run ci:compose:smoke
+
+  host-metrics-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run host metrics smoke test
+        run: npm run ci:host-metrics:smoke

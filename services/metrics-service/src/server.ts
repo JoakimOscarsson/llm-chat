@@ -18,9 +18,14 @@ type CreateAppOptions = {
 type NormalizedSample = {
   sampledAt: string;
   gpu: {
+    index?: number;
+    name?: string;
     usedMb: number;
     totalMb: number;
     utilizationPct: number;
+    temperatureC?: number;
+    powerDrawW?: number;
+    powerLimitW?: number;
   };
 };
 
@@ -48,7 +53,16 @@ function normalizePayload(payload: unknown): NormalizedSample | null {
 
   const candidate = payload as {
     sampledAt?: string;
-    gpu?: { usedMb?: number; totalMb?: number; utilizationPct?: number };
+    gpu?: {
+      index?: number;
+      name?: string;
+      usedMb?: number;
+      totalMb?: number;
+      utilizationPct?: number;
+      temperatureC?: number;
+      powerDrawW?: number;
+      powerLimitW?: number;
+    };
     usedMb?: number;
     totalMb?: number;
     utilizationPct?: number;
@@ -72,9 +86,17 @@ function normalizePayload(payload: unknown): NormalizedSample | null {
   return {
     sampledAt,
     gpu: {
+      index: typeof candidate.gpu?.index === "number" ? candidate.gpu.index : undefined,
+      name: typeof candidate.gpu?.name === "string" ? candidate.gpu.name : undefined,
       usedMb,
       totalMb,
-      utilizationPct
+      utilizationPct,
+      temperatureC:
+        typeof candidate.gpu?.temperatureC === "number" ? candidate.gpu.temperatureC : undefined,
+      powerDrawW:
+        typeof candidate.gpu?.powerDrawW === "number" ? candidate.gpu.powerDrawW : undefined,
+      powerLimitW:
+        typeof candidate.gpu?.powerLimitW === "number" ? candidate.gpu.powerLimitW : undefined
     }
   };
 }

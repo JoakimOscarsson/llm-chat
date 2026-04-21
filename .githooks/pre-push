@@ -9,3 +9,6 @@ npm run ci:helm
 
 echo "Running compose startup smoke test before push..."
 npm run ci:compose:smoke
+
+echo "Running host metrics smoke test before push..."
+npm run ci:host-metrics:smoke

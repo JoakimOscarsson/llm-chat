@@ -1,0 +1,4 @@
+#!/bin/sh
+cat <<'EOF'
+0, NVIDIA GeForce RTX 4080 SUPER, 11234, 16384, 68, 61, 246.5, 320
+EOF

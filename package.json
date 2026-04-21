@@ -7,6 +7,7 @@
     "build": "pnpm -r build",
     "ci:docker": "npm run ci:docker:validate && npm run ci:docker:static-analysis",
     "ci:compose:smoke": "sh scripts/compose-smoke.sh",
+    "ci:host-metrics:smoke": "sh scripts/host-metrics-smoke.sh",
     "ci:helm": "sh deploy/helm/validate.sh",
     "ci:docker:validate": "docker build -f docker/ci.Dockerfile --target validate -t llm-chat-ci:validate .",
     "ci:docker:static-analysis": "docker build -f docker/ci.Dockerfile --target static-analysis -t llm-chat-ci:static-analysis .",

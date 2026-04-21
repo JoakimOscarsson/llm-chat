@@ -124,9 +124,14 @@ Example response:
   "status": "ok",
   "sampledAt": "2026-04-20T18:00:00.000Z",
   "gpu": {
+    "index": 0,
+    "name": "NVIDIA GeForce RTX 4080 SUPER",
     "usedMb": 11234,
     "totalMb": 16384,
-    "utilizationPct": 68.6
+    "utilizationPct": 68.6,
+    "temperatureC": 61,
+    "powerDrawW": 246.5,
+    "powerLimitW": 320
   }
 }
 ```
@@ -142,6 +147,36 @@ Unavailable response example:
 ```
 
 ## App Backend To Ollama
+
+## Metrics Backend Contract
+
+`services/metrics-service` polls an external host-side metrics backend at:
+
+- `GET ${METRICS_BASE_URL}/gpu`
+
+Expected raw response shape:
+
+```json
+{
+  "sampledAt": "2026-04-21T15:30:00.000Z",
+  "gpu": {
+    "index": 0,
+    "name": "NVIDIA GeForce RTX 4080 SUPER",
+    "usedMb": 11234,
+    "totalMb": 16384,
+    "utilizationPct": 68,
+    "temperatureC": 61,
+    "powerDrawW": 246.5,
+    "powerLimitW": 320
+  }
+}
+```
+
+Notes:
+
+- `temperatureC`, `powerDrawW`, and `powerLimitW` are optional.
+- The host backend returns raw normalized telemetry, not the app-facing `ok` / `stale` / `unavailable` envelope.
+- `services/metrics-service` is responsible for timeout handling and stale/unavailable classification.
 
 ## Relevant Upstream Endpoints
 

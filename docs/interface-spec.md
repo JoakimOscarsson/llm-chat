@@ -22,6 +22,10 @@ This document defines the public and internal service contracts before scaffoldi
 - `metrics-service`
 - `ollama-adapter`
 
+External host-side dependency now supported:
+
+- `host-metrics-server`
+
 ## Suggested Local Ports
 
 - `apps/web`: `3000`
@@ -79,6 +83,20 @@ This means each service should expose environment toggles for stub mode instead 
 - `METRICS_TIMEOUT_MS`
 - `METRICS_STALE_AFTER_MS`
 
+Expected upstream endpoint:
+
+- `GET ${METRICS_BASE_URL}/gpu`
+
+The upstream raw GPU payload may include optional telemetry fields:
+
+- `gpu.index`
+- `gpu.name`
+- `gpu.temperatureC`
+- `gpu.powerDrawW`
+- `gpu.powerLimitW`
+
+`metrics-service` must preserve those fields when present while continuing to classify samples as `ok`, `stale`, or `unavailable`.
+
 ### `ollama-adapter`
 
 - `PORT`
@@ -92,6 +110,12 @@ This means each service should expose environment toggles for stub mode instead 
 - `OLLAMA_QUEUE_PROMPT_AFTER_MS`
 - `OLLAMA_RUNTIME_STATUS_TTL_MS`
 - `POD_INSTANCE_ID`
+
+### `host-metrics-server`
+
+- `PORT`
+- `HOST_METRICS_GPU_INDEX`
+- `HOST_METRICS_CMD_TIMEOUT_MS`
 
 ## Scalability Phase Additions
 

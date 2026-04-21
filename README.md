@@ -12,6 +12,7 @@ Microservice-first Ollama chat application with real-time streaming, a shared Ol
 - Derives new chat titles from the first prompt immediately.
 - Filters the model list to chat-capable models only.
 - Exposes a GPU metrics panel that degrades safely when no metrics backend exists yet.
+- Includes a standalone host-side GPU metrics collector built around `nvidia-smi`.
 - Queues Ollama-bound work through a shared concurrency limiter backed by Redis.
 - Exposes runtime status so the UI can highlight fast-path models and queue state.
 
@@ -37,7 +38,6 @@ Implemented now:
 
 Current limitations:
 
-- The metrics UI is wired, but there is not yet a real external GPU metrics collector in this repo.
 - Workspace-wide `lint` is still a placeholder script.
 
 ## Workspace Layout
@@ -48,6 +48,7 @@ Current limitations:
 - `services/model-service`: model discovery and warmup orchestration
 - `services/session-service`: sessions, titles, settings, and Postgres-backed history
 - `services/metrics-service`: metrics normalization layer
+- `host-metrics-server`: standalone host-side GPU telemetry service for the Ollama machine
 - `services/ollama-adapter`: direct Ollama communication, Cloudflare header injection, and Redis-backed queue coordination
 - `packages/contracts`: shared schemas and types
 - `packages/config`: shared TypeScript configuration
@@ -112,6 +113,7 @@ The main runtime variables are:
 - `OLLAMA_MAX_PARALLEL_REQUESTS`: cluster-wide Ollama concurrency limit
 - `OLLAMA_QUEUE_PROMPT_AFTER_MS`: delay before the UI prompts queued users to keep waiting or cancel
 - `OLLAMA_RUNTIME_STATUS_TTL_MS`: cache lifetime for fast-path/runtime status polling
+- `METRICS_BASE_URL`: external metrics backend base URL that `services/metrics-service` polls
 
 The app injects these fixed upstream auth headers server-side only:
 
@@ -125,6 +127,7 @@ These commands are the shared validation path used locally, by the pre-push hook
 - `npm run ci:docker`
 - `npm run ci:helm`
 - `npm run ci:compose:smoke`
+- `npm run ci:host-metrics:smoke`
 - `npm run ci:docker:validate`
 - `npm run ci:docker:static-analysis`
 - `npm run test:e2e` for Playwright once a target app is already running
@@ -169,6 +172,28 @@ Upload the real-backend test secrets in GitHub here:
    - `CF_ACCESS_CLIENT_SECRET`
 
 The manual workflow `.github/workflows/k8s-real-backend-e2e.yml` is already configured to read those environment secrets.
+
+## Host GPU Metrics Server
+
+The repo now includes a deployable host-side collector under:
+
+- [host-metrics-server](/Users/joakim/Documents/codex/llm-chat-app/host-metrics-server:1)
+
+It is designed to run on the same host as Ollama with NVIDIA runtime access and exposes:
+
+- `GET /health`
+- `GET /version`
+- `GET /gpu`
+
+The app-facing flow remains layered:
+
+- `host-metrics-server` collects raw GPU telemetry from `nvidia-smi`
+- `services/metrics-service` normalizes that payload into the UI contract
+- `api-gateway` and the browser continue talking only to `metrics-service`
+
+For host deployment notes and required runtime access, see:
+
+- [host-metrics-server/README.md](/Users/joakim/Documents/codex/llm-chat-app/host-metrics-server/README.md:1)
 
 ## Docs
 

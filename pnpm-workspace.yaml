@@ -1,6 +1,6 @@
 packages:
   - "apps/*"
   - "services/*"
+  - "host-metrics-server"
   - "packages/*"
   - "packages/config/*"
-
