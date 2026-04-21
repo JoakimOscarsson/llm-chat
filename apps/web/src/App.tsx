@@ -236,6 +236,30 @@ function parseStopSequences(value: string) {
     .filter(Boolean);
 }
 
+async function readResponseError(response: Response) {
+  const raw = await response.text();
+
+  if (!raw.trim()) {
+    return `Request failed with ${response.status}`;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { message?: unknown; error?: unknown };
+
+    if (typeof parsed.message === "string" && parsed.message.trim()) {
+      return parsed.message;
+    }
+
+    if (typeof parsed.error === "string" && parsed.error.trim()) {
+      return parsed.error;
+    }
+  } catch {
+    // Fall back to raw text below.
+  }
+
+  return raw.trim();
+}
+
 function mapSessionMessagesToTranscript(session: SessionDetail): TranscriptEntry[] {
   return session.messages
     .map((message) => ({
@@ -458,6 +482,9 @@ export function App() {
 
   const loadModels = async () => {
     const modelsResponse = await fetch(`${apiBaseUrl}/api/models`);
+    if (!modelsResponse.ok) {
+      throw new Error(await readResponseError(modelsResponse));
+    }
     const modelsPayload = (await modelsResponse.json()) as { models: ModelSummary[] };
     setModels(modelsPayload.models);
     return modelsPayload.models;
@@ -538,30 +565,79 @@ export function App() {
     }
   };
 
+  const warmModel = async (nextModel: string) => {
+    const effectiveKeepAlive = overrideKeepAlive.trim() || defaultKeepAlive.trim() || undefined;
+    const warmResponse = await fetch(`${apiBaseUrl}/api/models/warm`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        model: nextModel,
+        ...(effectiveKeepAlive ? { keep_alive: effectiveKeepAlive } : {})
+      })
+    });
+
+    if (!warmResponse.ok) {
+      throw new Error(await readResponseError(warmResponse));
+    }
+  };
+
   useEffect(() => {
     let active = true;
 
     const loadData = async () => {
-      const [modelsPayload, sessionsResponse, healthResponse, metricsPayload] = await Promise.all([
-        loadModels(),
-        fetch(`${apiBaseUrl}/api/sessions`),
-        fetch(`${apiBaseUrl}/api/health`),
-        loadMetrics()
-      ]);
-      const sessionsPayload = (await sessionsResponse.json()) as { sessions: SessionSummary[] };
-      const healthPayload = (await healthResponse.json()) as HealthResponse;
-
-      if (!active) {
-        return;
-      }
-
-      setSessions(sessionsPayload.sessions);
-      setHealth(healthPayload);
-      setMetrics(metricsPayload);
-      setSelectedSessionId((current) => current ?? sessionsPayload.sessions[0]?.id ?? null);
-      setSelectedModel((current) => pickAvailableModel(current, modelsPayload, sessionsPayload.sessions[0]?.model));
-
       try {
+        const [modelsPayload, sessionsResponse, healthResponse, metricsPayload] = await Promise.all([
+          loadModels(),
+          fetch(`${apiBaseUrl}/api/sessions`),
+          fetch(`${apiBaseUrl}/api/health`),
+          loadMetrics()
+        ]);
+        const sessionsPayload = (await sessionsResponse.json()) as { sessions: SessionSummary[] };
+        const healthPayload = (await healthResponse.json()) as HealthResponse;
+
+        if (!active) {
+          return;
+        }
+
+        const initialSessionId = sessionsPayload.sessions[0]?.id ?? null;
+        const initialModel = pickAvailableModel("", modelsPayload, sessionsPayload.sessions[0]?.model);
+
+        setSessions(sessionsPayload.sessions);
+        setHealth(healthPayload);
+        setMetrics(metricsPayload);
+        setSelectedSessionId((current) => current ?? initialSessionId);
+        setSelectedModel(initialModel);
+
+        if (initialModel) {
+          setIsModelSwitching(true);
+          setStatusText(`Loading ${initialModel}...`);
+          setLiveThinking(`Preloading ${initialModel} before chat starts.`);
+
+          try {
+            await warmModel(initialModel);
+
+            if (!active) {
+              return;
+            }
+
+            setStatusText(`${initialModel} ready`);
+            setLiveThinking(`Model ${initialModel} is loaded and ready.`);
+          } catch (error) {
+            if (!active) {
+              return;
+            }
+
+            setStatusText("Initial model load failed");
+            setLiveThinking(error instanceof Error ? error.message : `Could not load ${initialModel}.`);
+          } finally {
+            if (active) {
+              setIsModelSwitching(false);
+            }
+          }
+        }
+
         const defaultsResponse = await fetch(`${apiBaseUrl}/api/settings/defaults`);
         const defaultsPayload = (await defaultsResponse.json()) as { defaults: AppDefaults };
 
@@ -690,7 +766,7 @@ export function App() {
       const nextText = payload.text ?? "";
       setStatusText("Streaming answer...");
       setLiveThinking((current) =>
-        current === "Connecting to model..." || current.startsWith("Waiting for ")
+        current.trim() === ""
           ? "This model does not stream a separate thinking trace."
           : current
       );
@@ -781,7 +857,7 @@ export function App() {
     event.preventDefault();
 
     const messageText = prompt.trim();
-    if (!messageText || isModelSwitching) {
+    if (!messageText || isModelSwitching || isStreaming) {
       return;
     }
 
@@ -792,7 +868,7 @@ export function App() {
     const sessionIdAtSend = selectedSessionId;
 
     setPrompt("");
-    setLiveThinking("Connecting to model...");
+    setLiveThinking("");
     setStatusText(`Sending prompt to ${selectedModel}...`);
     setIsStreaming(true);
     setActiveRequestId(requestId);
@@ -827,6 +903,10 @@ export function App() {
         }),
         signal: abortController.signal
       });
+
+      if (!response.ok) {
+        throw new Error(await readResponseError(response));
+      }
 
       if (!response.body) {
         const text = await response.text();
@@ -873,12 +953,14 @@ export function App() {
       completedNormally = true;
     } catch (error) {
       if ((error as Error).name !== "AbortError") {
-        setLiveThinking("Stream interrupted.");
-        setStatusText("Connection interrupted");
+        const errorMessage = error instanceof Error ? error.message : "Stream interrupted.";
+        setLiveThinking(errorMessage);
+        setStatusText("Request failed");
         setMessages((current) =>
           appendToLatestAssistant(current, (message) => ({
             ...message,
-            isStreaming: false
+            isStreaming: false,
+            content: message.content || `Request failed while using \`${selectedModel}\`.\n\n${errorMessage}`
           }))
         );
       }
@@ -905,7 +987,8 @@ export function App() {
     setMessages((current) =>
       appendToLatestAssistant(current, (message) => ({
         ...message,
-        isStreaming: false
+        isStreaming: false,
+        content: message.content || "Generation stopped before any answer was returned."
       }))
     );
     setIsStreaming(false);
@@ -924,7 +1007,7 @@ export function App() {
   };
 
   const handlePromptKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (isModelSwitching) {
+    if (isModelSwitching || isStreaming) {
       event.preventDefault();
       return;
     }
@@ -945,7 +1028,8 @@ export function App() {
 
   const handleRefreshModels = async () => {
     const refreshedModels = await loadModels();
-    setSelectedModel((current) => pickAvailableModel(current, refreshedModels, activeSession?.model ?? sessions[0]?.model ?? null));
+    const nextModel = pickAvailableModel(selectedModel, refreshedModels, activeSession?.model ?? sessions[0]?.model ?? null);
+    setSelectedModel(nextModel);
   };
 
   const handleModelSelection = async (nextModel: string) => {
@@ -956,7 +1040,6 @@ export function App() {
     }
 
     const previousModel = selectedModel;
-    const effectiveKeepAlive = overrideKeepAlive.trim() || defaultKeepAlive.trim() || undefined;
 
     setIsModelSwitching(true);
     setSelectedModel(nextModel);
@@ -964,20 +1047,7 @@ export function App() {
     setLiveThinking(`Preloading ${nextModel} before chat starts.`);
 
     try {
-      const warmResponse = await fetch(`${apiBaseUrl}/api/models/warm`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({
-          model: nextModel,
-          ...(effectiveKeepAlive ? { keep_alive: effectiveKeepAlive } : {})
-        })
-      });
-
-      if (!warmResponse.ok) {
-        throw new Error(`Model warmup failed with ${warmResponse.status}`);
-      }
+      await warmModel(nextModel);
 
       if (selectedSessionId) {
         const response = await fetch(`${apiBaseUrl}/api/sessions/${selectedSessionId}/model-switch`, {
@@ -1390,7 +1460,11 @@ export function App() {
                 ) : null}
                 {message.role === "assistant" ? (
                   <div className="markdown-body">
-                    {message.content ? <ReactMarkdown>{message.content}</ReactMarkdown> : <p className="pending-copy">Waiting for answer...</p>}
+                    {message.content ? (
+                      <ReactMarkdown>{message.content}</ReactMarkdown>
+                    ) : (
+                      <p className="pending-copy">{message.isStreaming ? "Waiting for answer..." : "No answer returned."}</p>
+                    )}
                   </div>
                 ) : (
                   <p>{message.content}</p>
@@ -1410,7 +1484,7 @@ export function App() {
           <textarea
             aria-label="Prompt"
             className="composer-input"
-            disabled={isModelSwitching}
+            disabled={isModelSwitching || isStreaming}
             placeholder="Send a message to the model..."
             rows={1}
             value={prompt}

@@ -245,6 +245,17 @@ test("disables the composer while a model switch is warming", async () => {
       return new Response(
         JSON.stringify({
           ready: true,
+          model: "llama3.1:8b",
+          warmedAt: "2026-04-20T18:04:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          ready: true,
           model: "qwen2.5-coder:7b",
           warmedAt: "2026-04-20T18:04:00Z",
           loadDuration: 125_000_000,
@@ -364,6 +375,113 @@ test("disables the composer while a model switch is warming", async () => {
   });
 });
 
+test("warms the initially selected model before enabling the composer", async () => {
+  let warmupResolver!: () => void;
+  const warmupDone = new Promise<void>((resolve) => {
+    warmupResolver = resolve;
+  });
+  const warmRequests: string[] = [];
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [{ name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 }],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return new Response(
+        JSON.stringify({
+          sessions: [{ id: "sess_1", title: "New chat", model: "llama3.1:8b", updatedAt: "2026-04-20T18:03:00Z" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1")) {
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "New chat",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:03:00.000Z",
+            messages: [],
+            overrides: {}
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/settings/defaults")) {
+      return new Response(JSON.stringify({ defaults: { ...defaultAppDefaults } }), {
+        headers: { "content-type": "application/json" }
+      });
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      warmRequests.push(String(init?.body ?? ""));
+      await warmupDone;
+
+      return new Response(
+        JSON.stringify({
+          ready: true,
+          model: "llama3.1:8b",
+          warmedAt: "2026-04-20T18:04:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  await waitFor(() => {
+    expect(screen.getByRole("textbox", { name: /prompt/i })).toBeDisabled();
+  });
+  expect(screen.getByText("Loading llama3.1:8b...")).toBeInTheDocument();
+  expect(warmRequests).toHaveLength(1);
+
+  warmupResolver();
+
+  await waitFor(() => {
+    expect(screen.getByRole("textbox", { name: /prompt/i })).not.toBeDisabled();
+  });
+  expect(screen.getByText("llama3.1:8b ready")).toBeInTheDocument();
+});
+
 test("dismisses overlay sidebars on outside click and keeps docked rails beside the chat", async () => {
   setWindowWidth(1100);
 
@@ -389,6 +507,17 @@ test("dismisses overlay sidebars on outside click and keeps docked rails beside 
       );
     }
 
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          ready: true,
+          model: "llama3.1:8b",
+          warmedAt: "2026-04-20T18:04:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
     if (url.endsWith("/api/sessions/sess_1")) {
       return new Response(
         JSON.stringify({
@@ -401,6 +530,17 @@ test("dismisses overlay sidebars on outside click and keeps docked rails beside 
             messages: [],
             overrides: {}
           }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          ready: true,
+          model: "llama3.1:8b",
+          warmedAt: "2026-04-20T18:04:00Z"
         }),
         { headers: { "content-type": "application/json" } }
       );
@@ -1119,6 +1259,206 @@ test("streams thinking and markdown response into the UI as chunks arrive", asyn
   expect(screen.getByText("First point")).toBeInTheDocument();
   expect(screen.getByText("Complete")).toBeInTheDocument();
   await screen.findByRole("button", { name: /fix greeting format/i });
+});
+
+test("prevents overlapping chat submissions while a stream is already active", async () => {
+  const encoder = new TextEncoder();
+  let streamController: { enqueue(chunk: Uint8Array): void; close(): void } | null = null;
+  const chatRequests: string[] = [];
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [{ name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 }],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return new Response(JSON.stringify({ sessions: [] }), {
+        headers: { "content-type": "application/json" }
+      });
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          ready: true,
+          model: "llama3.1:8b",
+          warmedAt: "2026-04-20T18:04:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/chat/stream")) {
+      chatRequests.push(String(init?.body ?? ""));
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            streamController = controller;
+          }
+        }),
+        {
+          headers: {
+            "content-type": "text/event-stream"
+          }
+        }
+      );
+    }
+
+    if (url.endsWith("/api/chat/stop")) {
+      return new Response(JSON.stringify({ stopped: true }), {
+        headers: {
+          "content-type": "application/json"
+        }
+      });
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  const promptBox = await screen.findByPlaceholderText("Send a message to the model...");
+  fireEvent.change(promptBox, {
+    target: { value: "First prompt" }
+  });
+  fireEvent.submit(screen.getByRole("button", { name: "Send" }).closest("form")!);
+
+  await waitFor(() => {
+    expect(chatRequests).toHaveLength(1);
+  });
+  expect(promptBox).toBeDisabled();
+
+  fireEvent.change(promptBox, {
+    target: { value: "Second prompt" }
+  });
+  fireEvent.keyDown(promptBox, { key: "Enter", code: "Enter" });
+
+  expect(chatRequests).toHaveLength(1);
+
+  if (!streamController) {
+    throw new Error("stream controller was not initialized");
+  }
+
+  const controller = streamController as { enqueue(chunk: Uint8Array): void; close(): void };
+  controller.enqueue(encoder.encode('event: done\ndata: {"finishReason":"stop"}\n\n'));
+  controller.close();
+
+  await waitFor(() => {
+    expect(screen.getByRole("textbox", { name: /prompt/i })).not.toBeDisabled();
+  });
+});
+
+test("surfaces non-200 chat stream responses as visible failures", async () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [{ name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 }],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return new Response(JSON.stringify({ sessions: [] }), {
+        headers: { "content-type": "application/json" }
+      });
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          ready: true,
+          model: "llama3.1:8b",
+          warmedAt: "2026-04-20T18:04:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/chat/stream")) {
+      return new Response(
+        JSON.stringify({
+          message: "Upstream stream failed before it could start."
+        }),
+        {
+          status: 500,
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  fireEvent.change(await screen.findByPlaceholderText("Send a message to the model..."), {
+    target: { value: "Hello" }
+  });
+  fireEvent.submit(screen.getByRole("button", { name: "Send" }).closest("form")!);
+
+  await waitFor(() => {
+    expect(screen.getByText("Request failed")).toBeInTheDocument();
+  });
+  expect(screen.getAllByText(/Upstream stream failed before it could start\./i)).toHaveLength(2);
 });
 
 test("uses the currently selected model and surfaces stream errors", async () => {
