@@ -248,6 +248,34 @@ function fallbackTitleFromPrompt(messages: Array<{ role: string; content: string
   return candidate || "New chat";
 }
 
+function extractTitleCandidate(rawContent: string) {
+  const trimmed = rawContent.trim();
+
+  if (!trimmed) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as { title?: unknown };
+
+    if (typeof parsed.title === "string") {
+      return parsed.title;
+    }
+  } catch {
+    const titleMatch = trimmed.match(/["']title["']\s*:\s*["']([^"'\\]*(?:\\.[^"'\\]*)*)["']/i);
+
+    if (titleMatch) {
+      return titleMatch[1].replace(/\\"/g, "\"").replace(/\\n/g, " ").trim();
+    }
+
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      return "";
+    }
+  }
+
+  return trimmed;
+}
+
 async function generateChatTitle(
   config: OllamaAdapterConfig,
   fetchImpl: typeof fetch,
@@ -293,17 +321,7 @@ async function generateChatTitle(
       };
     };
     const rawContent = responsePayload.message?.content ?? "";
-    let title = "";
-
-    try {
-      const parsed = JSON.parse(rawContent) as { title?: unknown };
-
-      if (typeof parsed.title === "string") {
-        title = parsed.title;
-      }
-    } catch {
-      title = rawContent;
-    }
+    const title = extractTitleCandidate(rawContent);
 
     const sanitized = sanitizeTitleCandidate(title, maxLength);
 

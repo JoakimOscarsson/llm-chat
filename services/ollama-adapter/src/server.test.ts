@@ -203,3 +203,48 @@ test("POST /internal/provider/chat/title falls back to the prompt when upstream 
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().title, "help me debug nginx");
 });
+
+test("POST /internal/provider/chat/title ignores malformed json-ish title output and falls back to the prompt", async () => {
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false
+    },
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          message: {
+            content: '{"tlte":"create ascii"'
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      )
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/internal/provider/chat/title",
+    payload: {
+      model: "llama3.1:8b",
+      maxLength: 24,
+      messages: [
+        {
+          role: "user",
+          content: "Make me some ascii art"
+        }
+      ]
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().title, "Make me some ascii art");
+});
