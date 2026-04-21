@@ -271,6 +271,9 @@ const settingHints = {
 } as const;
 
 export function App() {
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
+  const [thinkingOpen, setThinkingOpen] = useState(false);
   const [models, setModels] = useState<ModelSummary[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -955,71 +958,117 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div>
-          <p className="eyebrow">Sessions</p>
-          <h1>LLM Chat</h1>
-        </div>
-        <button className="primary-button" type="button" onClick={() => void handleCreateSession()}>
-          New session
-        </button>
-        <div className="session-list">
-          {sessions.map((session) => (
-            <button
-              aria-pressed={selectedSessionId === session.id}
-              className="session-card"
-              key={session.id}
-              type="button"
-              onClick={() => setSelectedSessionId(session.id)}
-            >
-              <span>{session.title}</span>
-              <small>{session.updatedAt}</small>
+      <aside className={`sidebar ${leftSidebarOpen ? "expanded" : "collapsed"}`}>
+        <div className="sidebar-header">
+          <button
+            aria-expanded={leftSidebarOpen}
+            aria-label={leftSidebarOpen ? "Collapse sessions sidebar" : "Expand sessions sidebar"}
+            className="sidebar-toggle"
+            type="button"
+            onClick={() => setLeftSidebarOpen((current) => !current)}
+          >
+            {leftSidebarOpen ? "Hide sessions" : "Sessions"}
+          </button>
+          {leftSidebarOpen ? (
+            <button className="primary-button" type="button" onClick={() => void handleCreateSession()}>
+              New session
             </button>
-          ))}
+          ) : null}
         </div>
+        {leftSidebarOpen ? (
+          <>
+            <div>
+              <p className="eyebrow">Sessions</p>
+              <h1>LLM Chat</h1>
+            </div>
+            <div className="session-list">
+              {sessions.map((session) => (
+                <button
+                  aria-pressed={selectedSessionId === session.id}
+                  className="session-card"
+                  key={session.id}
+                  type="button"
+                  onClick={() => setSelectedSessionId(session.id)}
+                >
+                  <span>{session.title}</span>
+                  <small>{session.updatedAt}</small>
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="sidebar-collapsed-copy">
+            <span>{sessions.length} chats</span>
+          </div>
+        )}
       </aside>
 
       <main className="chat-panel">
         <header className="panel-header">
-          <div>
-            <p className="eyebrow">Active model</p>
+          <button
+            aria-expanded={leftSidebarOpen}
+            aria-label={leftSidebarOpen ? "Collapse sessions sidebar" : "Expand sessions sidebar"}
+            className="panel-icon-button"
+            type="button"
+            onClick={() => setLeftSidebarOpen((current) => !current)}
+          >
+            Chats
+          </button>
+          <div className="panel-title">
+            <p className="eyebrow">Current model</p>
             <h2>{selectedModel || "Loading models..."}</h2>
           </div>
           <div className="header-actions">
-            <label className="model-select-label">
-              <span className="eyebrow">Model selector</span>
-              <select
-                aria-label="Model selector"
-                className="model-select"
-                onChange={(event) => setSelectedModel(event.target.value)}
-                value={selectedModel}
-              >
-                {models.map((model) => (
-                  <option key={model.name} value={model.name}>
-                    {model.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button className="secondary-button" type="button" onClick={() => void handleRefreshModels()}>
-              Refresh models
+            <details className="model-menu">
+              <summary className="panel-icon-button">Models</summary>
+              <div className="model-menu-card">
+                <label className="model-select-label">
+                  <span className="eyebrow">Choose model</span>
+                  <select
+                    aria-label="Model selector"
+                    className="model-select"
+                    onChange={(event) => setSelectedModel(event.target.value)}
+                    value={selectedModel}
+                  >
+                    {models.map((model) => (
+                      <option key={model.name} value={model.name}>
+                        {model.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button className="secondary-button" type="button" onClick={() => void handleRefreshModels()}>
+                  Refresh models
+                </button>
+              </div>
+            </details>
+            <button
+              aria-expanded={rightSidebarOpen}
+              aria-label={rightSidebarOpen ? "Collapse settings sidebar" : "Expand settings sidebar"}
+              className="panel-icon-button"
+              type="button"
+              onClick={() => setRightSidebarOpen((current) => !current)}
+            >
+              Controls
             </button>
           </div>
         </header>
 
         <section className="thinking-panel">
-          <div className="section-header">
-            <div>
-              <p className="eyebrow">Live thinking</p>
-              <p className="panel-subtitle">Visible while the model reasons, saved collapsed in history.</p>
+          <details className="widget disclosure thinking-disclosure" open={thinkingOpen} onToggle={(event) => setThinkingOpen((event.currentTarget as HTMLDetailsElement).open)}>
+            <summary className="widget-summary">
+              <div>
+                <p className="eyebrow">Live thinking</p>
+                <p className="panel-subtitle">Visible while the model reasons, saved collapsed in history.</p>
+              </div>
+              <span className={`status-pill ${isStreaming ? "working" : "muted"}`}>{statusText}</span>
+            </summary>
+            <div className="thinking-box" role="status" aria-live="polite">
+              <div className="thinking-scroll" onScroll={handleThinkingScroll} ref={thinkingScrollRef}>
+                {liveThinking}
+              </div>
             </div>
-            <span className={`status-pill ${isStreaming ? "working" : "muted"}`}>{statusText}</span>
-          </div>
-          <div className="thinking-box" role="status" aria-live="polite">
-            <div className="thinking-scroll" onScroll={handleThinkingScroll} ref={thinkingScrollRef}>
-              {liveThinking}
-            </div>
-          </div>
+          </details>
         </section>
 
         <section className="transcript" onScroll={handleTranscriptScroll} ref={transcriptRef}>
@@ -1053,7 +1102,7 @@ export function App() {
             aria-label="Prompt"
             className="composer-input"
             placeholder="Send a message to the model..."
-            rows={6}
+            rows={1}
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={handlePromptKeyDown}
@@ -1085,185 +1134,204 @@ export function App() {
         </form>
       </main>
 
-      <aside className="utility-panel">
-        <details className="widget disclosure">
-          <summary className="widget-summary">
-            <div>
-              <p className="eyebrow">App defaults</p>
-              <p className="panel-subtitle">Global baseline for new chats.</p>
-            </div>
-            <span className="summary-state">{defaultsStatus}</span>
-          </summary>
-          <div className="settings-grid">
-            <label className="settings-field">
-              {tooltipHint("System prompt", settingHints.systemPrompt)}
-              <textarea aria-label="System prompt" value={defaultSystemPrompt} onChange={(event) => setDefaultSystemPrompt(event.target.value)} rows={5} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Request history", settingHints.requestHistoryCount)}
-              <input aria-label="Request history" value={defaultRequestHistoryCount} onChange={(event) => setDefaultRequestHistoryCount(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Response history", settingHints.responseHistoryCount)}
-              <input aria-label="Response history" value={defaultResponseHistoryCount} onChange={(event) => setDefaultResponseHistoryCount(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Temperature", settingHints.temperature)}
-              <input aria-label="Temperature" value={defaultTemperature} onChange={(event) => setDefaultTemperature(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Top K", settingHints.topK)}
-              <input aria-label="Top K" value={defaultTopK} onChange={(event) => setDefaultTopK(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Top P", settingHints.topP)}
-              <input aria-label="Top P" value={defaultTopP} onChange={(event) => setDefaultTopP(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Repeat penalty", settingHints.repeatPenalty)}
-              <input aria-label="Repeat penalty" value={defaultRepeatPenalty} onChange={(event) => setDefaultRepeatPenalty(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Seed", settingHints.seed)}
-              <input aria-label="Seed" value={defaultSeed} onChange={(event) => setDefaultSeed(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Context window", settingHints.numCtx)}
-              <input aria-label="Context window" value={defaultNumCtx} onChange={(event) => setDefaultNumCtx(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Max tokens", settingHints.numPredict)}
-              <input aria-label="Max tokens" value={defaultNumPredict} onChange={(event) => setDefaultNumPredict(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Stop sequences", settingHints.stop)}
-              <textarea aria-label="Stop sequences" value={defaultStop} onChange={(event) => setDefaultStop(event.target.value)} rows={3} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Keep alive", settingHints.keepAlive)}
-              <input aria-label="Keep alive" value={defaultKeepAlive} onChange={(event) => setDefaultKeepAlive(event.target.value)} />
-            </label>
-            <label className="settings-toggle">
-              <input checked={defaultStreamThinking} type="checkbox" onChange={(event) => setDefaultStreamThinking(event.target.checked)} />
-              {tooltipHint("Stream thinking by default", settingHints.streamThinking)}
-            </label>
-          </div>
-          <div className="widget-footer">
-            <button className="secondary-button" type="button" onClick={() => void handleSaveDefaults()}>
-              Save defaults
-            </button>
-          </div>
-        </details>
+      <aside className={`utility-panel ${rightSidebarOpen ? "expanded" : "collapsed"}`}>
+        <div className="sidebar-header">
+          <button
+            aria-expanded={rightSidebarOpen}
+            aria-label={rightSidebarOpen ? "Collapse settings sidebar" : "Expand settings sidebar"}
+            className="sidebar-toggle"
+            type="button"
+            onClick={() => setRightSidebarOpen((current) => !current)}
+          >
+            {rightSidebarOpen ? "Hide controls" : "Controls"}
+          </button>
+        </div>
+        {rightSidebarOpen ? (
+          <>
+            <details className="widget disclosure">
+              <summary className="widget-summary">
+                <div>
+                  <p className="eyebrow">App defaults</p>
+                  <p className="panel-subtitle">Global baseline for new chats.</p>
+                </div>
+                <span className="summary-state">{defaultsStatus}</span>
+              </summary>
+              <div className="settings-grid">
+                <label className="settings-field">
+                  {tooltipHint("System prompt", settingHints.systemPrompt)}
+                  <textarea aria-label="System prompt" value={defaultSystemPrompt} onChange={(event) => setDefaultSystemPrompt(event.target.value)} rows={5} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Request history", settingHints.requestHistoryCount)}
+                  <input aria-label="Request history" value={defaultRequestHistoryCount} onChange={(event) => setDefaultRequestHistoryCount(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Response history", settingHints.responseHistoryCount)}
+                  <input aria-label="Response history" value={defaultResponseHistoryCount} onChange={(event) => setDefaultResponseHistoryCount(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Temperature", settingHints.temperature)}
+                  <input aria-label="Temperature" value={defaultTemperature} onChange={(event) => setDefaultTemperature(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Top K", settingHints.topK)}
+                  <input aria-label="Top K" value={defaultTopK} onChange={(event) => setDefaultTopK(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Top P", settingHints.topP)}
+                  <input aria-label="Top P" value={defaultTopP} onChange={(event) => setDefaultTopP(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Repeat penalty", settingHints.repeatPenalty)}
+                  <input aria-label="Repeat penalty" value={defaultRepeatPenalty} onChange={(event) => setDefaultRepeatPenalty(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Seed", settingHints.seed)}
+                  <input aria-label="Seed" value={defaultSeed} onChange={(event) => setDefaultSeed(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Context window", settingHints.numCtx)}
+                  <input aria-label="Context window" value={defaultNumCtx} onChange={(event) => setDefaultNumCtx(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Max tokens", settingHints.numPredict)}
+                  <input aria-label="Max tokens" value={defaultNumPredict} onChange={(event) => setDefaultNumPredict(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Stop sequences", settingHints.stop)}
+                  <textarea aria-label="Stop sequences" value={defaultStop} onChange={(event) => setDefaultStop(event.target.value)} rows={3} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Keep alive", settingHints.keepAlive)}
+                  <input aria-label="Keep alive" value={defaultKeepAlive} onChange={(event) => setDefaultKeepAlive(event.target.value)} />
+                </label>
+                <label className="settings-toggle">
+                  <input checked={defaultStreamThinking} type="checkbox" onChange={(event) => setDefaultStreamThinking(event.target.checked)} />
+                  {tooltipHint("Stream thinking by default", settingHints.streamThinking)}
+                </label>
+              </div>
+              <div className="widget-footer">
+                <button className="secondary-button" type="button" onClick={() => void handleSaveDefaults()}>
+                  Save defaults
+                </button>
+              </div>
+            </details>
 
-        <details className="widget disclosure">
-          <summary className="widget-summary">
-            <div>
-              <p className="eyebrow">Session overrides</p>
-              <p className="panel-subtitle">Per-chat adjustments on top of app defaults.</p>
-            </div>
-            <span className="summary-state">{overrideStatus}</span>
-          </summary>
-          <div className="settings-grid">
-            <label className="settings-field">
-              {tooltipHint("System prompt override", settingHints.systemPrompt)}
-              <textarea aria-label="System prompt override" value={overrideSystemPrompt} onChange={(event) => setOverrideSystemPrompt(event.target.value)} rows={4} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Request history override", settingHints.requestHistoryCount)}
-              <input aria-label="Request history override" value={overrideRequestHistoryCount} onChange={(event) => setOverrideRequestHistoryCount(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Response history override", settingHints.responseHistoryCount)}
-              <input aria-label="Response history override" value={overrideResponseHistoryCount} onChange={(event) => setOverrideResponseHistoryCount(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Temperature override", settingHints.temperature)}
-              <input aria-label="Temperature override" value={overrideTemperature} onChange={(event) => setOverrideTemperature(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Top K override", settingHints.topK)}
-              <input aria-label="Top K override" value={overrideTopK} onChange={(event) => setOverrideTopK(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Top P override", settingHints.topP)}
-              <input aria-label="Top P override" value={overrideTopP} onChange={(event) => setOverrideTopP(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Repeat penalty override", settingHints.repeatPenalty)}
-              <input aria-label="Repeat penalty override" value={overrideRepeatPenalty} onChange={(event) => setOverrideRepeatPenalty(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Seed override", settingHints.seed)}
-              <input aria-label="Seed override" value={overrideSeed} onChange={(event) => setOverrideSeed(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Context override", settingHints.numCtx)}
-              <input aria-label="Context override" value={overrideNumCtx} onChange={(event) => setOverrideNumCtx(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Max tokens override", settingHints.numPredict)}
-              <input aria-label="Max tokens override" value={overrideNumPredict} onChange={(event) => setOverrideNumPredict(event.target.value)} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Stop override", settingHints.stop)}
-              <textarea aria-label="Stop override" value={overrideStop} onChange={(event) => setOverrideStop(event.target.value)} rows={3} />
-            </label>
-            <label className="settings-field">
-              {tooltipHint("Keep alive override", settingHints.keepAlive)}
-              <input aria-label="Keep alive override" value={overrideKeepAlive} onChange={(event) => setOverrideKeepAlive(event.target.value)} />
-            </label>
-          </div>
-          <div className="widget-footer">
-            <button className="secondary-button" disabled={!selectedSessionId} type="button" onClick={() => void handleSaveOverrides()}>
-              Save session
-            </button>
-          </div>
-        </details>
+            <details className="widget disclosure">
+              <summary className="widget-summary">
+                <div>
+                  <p className="eyebrow">Session overrides</p>
+                  <p className="panel-subtitle">Per-chat adjustments on top of app defaults.</p>
+                </div>
+                <span className="summary-state">{overrideStatus}</span>
+              </summary>
+              <div className="settings-grid">
+                <label className="settings-field">
+                  {tooltipHint("System prompt override", settingHints.systemPrompt)}
+                  <textarea aria-label="System prompt override" value={overrideSystemPrompt} onChange={(event) => setOverrideSystemPrompt(event.target.value)} rows={4} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Request history override", settingHints.requestHistoryCount)}
+                  <input aria-label="Request history override" value={overrideRequestHistoryCount} onChange={(event) => setOverrideRequestHistoryCount(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Response history override", settingHints.responseHistoryCount)}
+                  <input aria-label="Response history override" value={overrideResponseHistoryCount} onChange={(event) => setOverrideResponseHistoryCount(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Temperature override", settingHints.temperature)}
+                  <input aria-label="Temperature override" value={overrideTemperature} onChange={(event) => setOverrideTemperature(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Top K override", settingHints.topK)}
+                  <input aria-label="Top K override" value={overrideTopK} onChange={(event) => setOverrideTopK(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Top P override", settingHints.topP)}
+                  <input aria-label="Top P override" value={overrideTopP} onChange={(event) => setOverrideTopP(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Repeat penalty override", settingHints.repeatPenalty)}
+                  <input aria-label="Repeat penalty override" value={overrideRepeatPenalty} onChange={(event) => setOverrideRepeatPenalty(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Seed override", settingHints.seed)}
+                  <input aria-label="Seed override" value={overrideSeed} onChange={(event) => setOverrideSeed(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Context override", settingHints.numCtx)}
+                  <input aria-label="Context override" value={overrideNumCtx} onChange={(event) => setOverrideNumCtx(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Max tokens override", settingHints.numPredict)}
+                  <input aria-label="Max tokens override" value={overrideNumPredict} onChange={(event) => setOverrideNumPredict(event.target.value)} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Stop override", settingHints.stop)}
+                  <textarea aria-label="Stop override" value={overrideStop} onChange={(event) => setOverrideStop(event.target.value)} rows={3} />
+                </label>
+                <label className="settings-field">
+                  {tooltipHint("Keep alive override", settingHints.keepAlive)}
+                  <input aria-label="Keep alive override" value={overrideKeepAlive} onChange={(event) => setOverrideKeepAlive(event.target.value)} />
+                </label>
+              </div>
+              <div className="widget-footer">
+                <button className="secondary-button" disabled={!selectedSessionId} type="button" onClick={() => void handleSaveOverrides()}>
+                  Save session
+                </button>
+              </div>
+            </details>
 
-        <details className="widget disclosure" open>
-          <summary className="widget-summary">
-            <div>
-              <p className="eyebrow">System status</p>
-              <p className="panel-subtitle">Connection and VRAM availability.</p>
-            </div>
-            <span className="summary-state">{metricsAvailability}</span>
-          </summary>
-          <div className="diagnostics-grid">
-            <div className="status-line">
-              <span className="status-pill">{health?.status === "ok" ? "Gateway ready" : "Gateway degraded"}</span>
-              <span className={`status-pill ${metrics?.status === "ok" ? "" : "muted"}`}>
-                {metrics?.status === "ok" ? "Metrics current" : metrics?.status === "stale" ? "Metrics stale" : "Metrics unavailable"}
-              </span>
-            </div>
-            <div className="meter">
-              <div
-                className={`meter-bar ${metrics?.status === "stale" ? "stale" : ""}`}
-                style={{
-                  width:
-                    metrics?.status === "ok" || metrics?.status === "stale"
-                      ? `${Math.min(100, Math.max(0, metrics.gpu.utilizationPct))}%`
-                      : "0%"
-                }}
-              />
-            </div>
-            {metrics?.status === "ok" || metrics?.status === "stale" ? (
-              <>
-                <small>{metricsAvailability}</small>
-                <small className="panel-subtitle">
-                  {metrics.status === "stale" ? "Metrics are stale" : "Metrics are current"} · sampled {metrics.sampledAt}
-                </small>
-              </>
-            ) : (
-              <>
-                <small>{metricsAvailability}</small>
-                <small className="panel-subtitle">Reason: {metrics?.reason ?? "loading"}</small>
-              </>
-            )}
-            <button className="secondary-button" type="button" onClick={() => void loadMetrics()}>
-              Refresh metrics
-            </button>
+            <details className="widget disclosure">
+              <summary className="widget-summary">
+                <div>
+                  <p className="eyebrow">System status</p>
+                  <p className="panel-subtitle">Connection and VRAM availability.</p>
+                </div>
+                <span className="summary-state">{metricsAvailability}</span>
+              </summary>
+              <div className="diagnostics-grid">
+                <div className="status-line">
+                  <span className="status-pill">{health?.status === "ok" ? "Gateway ready" : "Gateway degraded"}</span>
+                  <span className={`status-pill ${metrics?.status === "ok" ? "" : "muted"}`}>
+                    {metrics?.status === "ok" ? "Metrics current" : metrics?.status === "stale" ? "Metrics stale" : "Metrics unavailable"}
+                  </span>
+                </div>
+                <div className="meter">
+                  <div
+                    className={`meter-bar ${metrics?.status === "stale" ? "stale" : ""}`}
+                    style={{
+                      width:
+                        metrics?.status === "ok" || metrics?.status === "stale"
+                          ? `${Math.min(100, Math.max(0, metrics.gpu.utilizationPct))}%`
+                          : "0%"
+                    }}
+                  />
+                </div>
+                {metrics?.status === "ok" || metrics?.status === "stale" ? (
+                  <>
+                    <small>{metricsAvailability}</small>
+                    <small className="panel-subtitle">
+                      {metrics.status === "stale" ? "Metrics are stale" : "Metrics are current"} · sampled {metrics.sampledAt}
+                    </small>
+                  </>
+                ) : (
+                  <>
+                    <small>{metricsAvailability}</small>
+                    <small className="panel-subtitle">Reason: {metrics?.reason ?? "loading"}</small>
+                  </>
+                )}
+                <button className="secondary-button" type="button" onClick={() => void loadMetrics()}>
+                  Refresh metrics
+                </button>
+              </div>
+            </details>
+          </>
+        ) : (
+          <div className="sidebar-collapsed-copy">
+            <span>{metrics?.status === "ok" ? "System ready" : "Open controls"}</span>
           </div>
-        </details>
+        )}
       </aside>
     </div>
   );

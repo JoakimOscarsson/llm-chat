@@ -97,13 +97,17 @@ test("renders discovered models from the gateway", async () => {
 
   render(<App />);
 
+  fireEvent.click(screen.getByRole("button", { name: /models/i }));
+
   await waitFor(() => {
     expect(screen.getByRole("combobox", { name: /model selector/i })).toHaveValue("llama3.1:8b");
   });
 
+  fireEvent.click(screen.getAllByRole("button", { name: /expand sessions sidebar/i })[0]!);
   expect(screen.getByRole("option", { name: "llama3.1:8b" })).toBeInTheDocument();
   expect(screen.getByRole("option", { name: "qwen2.5:7b" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /troubleshooting nginx config/i })).toBeInTheDocument();
+  fireEvent.click(screen.getAllByRole("button", { name: /expand settings sidebar/i })[0]!);
   expect(screen.getAllByText("Gateway ready").length).toBeGreaterThan(0);
   expect(screen.getAllByText("Metrics unavailable").length).toBeGreaterThan(0);
   expect(screen.getByText("Pick a model, send a prompt, and the conversation will build here.")).toBeInTheDocument();
@@ -243,10 +247,11 @@ test("loads and saves app defaults and session overrides", async () => {
 
   render(<App />);
 
-  expect(await screen.findByDisplayValue("Use markdown.")).toBeInTheDocument();
+  fireEvent.click((await screen.findAllByRole("button", { name: /expand settings sidebar/i }))[0]!);
   fireEvent.click(screen.getByText("App defaults"));
+  expect(await screen.findByDisplayValue("Use markdown.")).toBeInTheDocument();
 
-  fireEvent.change(screen.getByLabelText("System prompt"), {
+  fireEvent.change(screen.getByRole("textbox", { name: "System prompt" }), {
     target: { value: "Use bullets." }
   });
   fireEvent.click(screen.getByRole("button", { name: "Save defaults" }));
@@ -255,6 +260,7 @@ test("loads and saves app defaults and session overrides", async () => {
     expect(requests.some((request) => request.url.endsWith("/api/settings/defaults"))).toBe(true);
   });
 
+  fireEvent.click(screen.getByRole("button", { name: /models/i }));
   fireEvent.change(screen.getByRole("combobox", { name: /model selector/i }), {
     target: { value: "llama3.1:8b" }
   });
@@ -389,6 +395,7 @@ test("creates a new session from the active model", async () => {
 
   render(<App />);
 
+  fireEvent.click((await screen.findAllByRole("button", { name: /expand sessions sidebar/i }))[0]!);
   await screen.findByRole("button", { name: /existing chat/i });
   fireEvent.click(screen.getByRole("button", { name: "New session" }));
 
@@ -627,6 +634,7 @@ test("streams thinking and markdown response into the UI as chunks arrive", asyn
 
   const { container } = render(<App />);
 
+  fireEvent.click((await screen.findAllByRole("button", { name: /expand sessions sidebar/i }))[0]!);
   await screen.findByRole("button", { name: /troubleshooting nginx config/i });
 
   fireEvent.change(screen.getByPlaceholderText("Send a message to the model..."), {
@@ -1192,6 +1200,7 @@ test("stops an in-flight stream and sends a stop request", async () => {
 
   render(<App />);
 
+  fireEvent.click((await screen.findAllByRole("button", { name: /expand sessions sidebar/i }))[0]!);
   await screen.findByRole("button", { name: /troubleshooting nginx config/i });
 
   fireEvent.change(screen.getByPlaceholderText("Send a message to the model..."), {
