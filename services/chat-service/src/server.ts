@@ -118,53 +118,54 @@ async function persistAssistantResult(
   });
 }
 
-async function generateSessionTitle(
+function sanitizeTitleCandidate(input: string, maxLength: number) {
+  const collapsed = input
+    .replace(/[`*_#>[\](){}]/g, " ")
+    .replace(/[^\p{L}\p{N}\s:/.-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!collapsed) {
+    return "";
+  }
+
+  if (collapsed.length <= maxLength) {
+    return collapsed;
+  }
+
+  const sliced = collapsed.slice(0, maxLength).trim();
+  const lastWhitespace = sliced.lastIndexOf(" ");
+
+  if (lastWhitespace >= 12) {
+    return sliced.slice(0, lastWhitespace).trim();
+  }
+
+  return sliced;
+}
+
+function deriveSessionTitleFromPrompt(userMessage: string) {
+  const cleaned = userMessage
+    .replace(/^first user message:\s*/i, "")
+    .replace(/^(please|can you|could you|help me|i need|show me)\s+/i, "")
+    .trim();
+  const title = sanitizeTitleCandidate(cleaned || userMessage, SESSION_TITLE_MAX_LENGTH);
+
+  if (!title) {
+    return "New chat";
+  }
+
+  return `${title.slice(0, 1).toUpperCase()}${title.slice(1)}`;
+}
+
+async function persistSessionTitle(
   config: ChatServiceConfig,
   fetchImpl: typeof fetch,
   payload: {
     sessionId: string;
-    model: string;
-    userMessage: string;
+    title: string;
   }
 ) {
-  const titleResponse = await fetchImpl(`${config.ollamaAdapterUrl}/internal/provider/chat/title`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      model: payload.model,
-      maxLength: SESSION_TITLE_MAX_LENGTH,
-      messages: [
-        {
-          role: "system",
-          content: [
-            "Generate a concise conversation title from the user's first prompt.",
-            `Return only JSON with a single "title" string.`,
-            "Use 2 to 5 words.",
-            `Keep it under ${SESSION_TITLE_MAX_LENGTH} characters.`,
-            "Base it only on the user request, not the assistant reply.",
-            "No quotes around the final title, no markdown, no trailing punctuation unless required."
-          ].join(" ")
-        },
-        {
-          role: "user",
-          content: `First user message: ${payload.userMessage}`
-        }
-      ]
-    })
-  });
-
-  if (!titleResponse.ok) {
-    throw new Error(`Title generation failed with ${titleResponse.status}`);
-  }
-
-  const titlePayload = (await titleResponse.json()) as { title?: unknown };
-  const title = typeof titlePayload.title === "string" ? titlePayload.title.trim() : "";
-
-  if (!title || title.length > SESSION_TITLE_MAX_LENGTH) {
-    throw new Error("Generated title did not fit the allowed title length");
-  }
+  const title = deriveSessionTitleFromPrompt(payload.title);
 
   const patchResponse = await fetchImpl(`${config.sessionServiceUrl}/internal/sessions/${payload.sessionId}`, {
     method: "PATCH",
@@ -233,6 +234,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     });
 
     try {
+      reply.header("content-type", "text/event-stream");
       let model = payload.model;
       let messages = directMessages;
       let options = payload.options ?? {};
@@ -244,8 +246,6 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       let streamBuffer = "";
       const createdAt = new Date().toISOString();
       let shouldGenerateTitle = false;
-      let titlePromise: Promise<void> | null = null;
-
       if (sessionId) {
         const context = await fetchSessionContext(config, fetchImpl, sessionId);
         const resolved = resolveSettings(context.globalDefaults, context.overrides);
@@ -273,20 +273,15 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
           });
 
           if (shouldGenerateTitle) {
-            titlePromise = generateSessionTitle(config, fetchImpl, {
+            const title = await persistSessionTitle(config, fetchImpl, {
               sessionId,
-              model: model ?? "llama3.1:8b",
-              userMessage: message
-            })
-              .then((title) => {
-                if (!reply.raw.writableEnded) {
-                  reply.raw.write("event: session_title\n");
-                  reply.raw.write(`data: ${JSON.stringify({ sessionId, title })}\n\n`);
-                }
-              })
-              .catch(() => {
-                // Keep title generation best-effort so chat completion never fails on it.
-              });
+              title: message
+            }).catch(() => "");
+
+            if (title) {
+              reply.raw.write("event: session_title\n");
+              reply.raw.write(`data: ${JSON.stringify({ sessionId, title })}\n\n`);
+            }
           }
         }
       } else if (message && messages.length === 0) {
@@ -309,8 +304,6 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
         }),
         signal: abortController.signal
       });
-
-      reply.header("content-type", "text/event-stream");
 
       if (!upstream.body) {
         const text = await upstream.text();
@@ -388,13 +381,11 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
           assistantThinking
         );
       }
-
-      await titlePromise;
-
       reply.raw.end();
       return reply;
     } catch (error) {
       if (abortController.signal.aborted) {
+        reply.type("application/json");
         return reply.code(499).send({
           stopped: true,
           requestId

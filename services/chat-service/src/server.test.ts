@@ -261,15 +261,6 @@ test("POST /internal/chat/stream persists streamed assistant content and thinkin
         );
       }
 
-      if (url === "http://ollama-adapter:4005/internal/provider/chat/title") {
-        return new Response(
-          JSON.stringify({
-            title: "Counting task"
-          }),
-          { headers: { "content-type": "application/json" } }
-        );
-      }
-
       if (url === "http://session-service:4003/internal/sessions/sess_1") {
         patchedTitleBody = String(init?.body ?? "");
 
@@ -277,7 +268,7 @@ test("POST /internal/chat/stream persists streamed assistant content and thinkin
           JSON.stringify({
             session: {
               id: "sess_1",
-              title: "Counting task",
+              title: "Count to 2.",
               model: "llama3.1:8b",
               createdAt: "2026-04-20T18:00:00.000Z",
               updatedAt: "2026-04-20T18:00:02.000Z",
@@ -317,11 +308,11 @@ test("POST /internal/chat/stream persists streamed assistant content and thinkin
   assert.match(persistedBodies[0] ?? "", /"role":"user","content":"Count to 2\."/);
   assert.match(persistedBodies[1] ?? "", /"role":"assistant","content":"One two"/);
   assert.match(persistedBodies[1] ?? "", /"thinking":\{"content":"Plan first\."/);
-  assert.match(patchedTitleBody, /"title":"Counting task"/);
+  assert.match(patchedTitleBody, /"title":"Count to 2\."/
+  );
 });
 
 test("POST /internal/chat/stream generates a short title only for the first chat turn", async () => {
-  let titleRequests = 0;
   let patchedTitleBody = "";
 
   const app = createApp({
@@ -381,17 +372,6 @@ test("POST /internal/chat/stream generates a short title only for the first chat
         );
       }
 
-      if (url === "http://ollama-adapter:4005/internal/provider/chat/title") {
-        titleRequests += 1;
-
-        return new Response(
-          JSON.stringify({
-            title: "Fix nginx proxy"
-          }),
-          { headers: { "content-type": "application/json" } }
-        );
-      }
-
       if (url === "http://session-service:4003/internal/sessions/sess_1") {
         patchedTitleBody = String(init?.body ?? "");
 
@@ -399,7 +379,7 @@ test("POST /internal/chat/stream generates a short title only for the first chat
           JSON.stringify({
             session: {
               id: "sess_1",
-              title: "Fix nginx proxy",
+              title: "Fix nginx",
               model: "llama3.1:8b",
               createdAt: "2026-04-20T18:00:00.000Z",
               updatedAt: "2026-04-20T18:00:02.000Z",
@@ -446,8 +426,9 @@ test("POST /internal/chat/stream generates a short title only for the first chat
   });
 
   assert.equal(response.statusCode, 200);
-  assert.equal(titleRequests, 1);
-  assert.match(patchedTitleBody, /"title":"Fix nginx proxy"/);
+  assert.match(response.body, /event: session_title/);
+  assert.match(response.body, /"title":"Fix nginx"/);
+  assert.match(patchedTitleBody, /"title":"Fix nginx"/);
 });
 
 test("POST /internal/chat/stop aborts an in-flight stream and forwards the stop request", async () => {
