@@ -11,6 +11,7 @@ type ModelSummary = {
   name: string;
   modifiedAt: string;
   size: number;
+  chatCapable?: boolean;
 };
 
 type SessionSummary = {
@@ -112,6 +113,16 @@ type MetricsResponse =
       reason: string;
     };
 
+type RuntimeResponse = {
+  busy: boolean;
+  activeRequests: number;
+  maxParallelRequests: number;
+  queueDepth: number;
+  residentModels: string[];
+  fastPathModels: string[];
+  fetchedAt: string;
+};
+
 type StreamEventPayload = {
   requestId?: string;
   text?: string;
@@ -121,6 +132,21 @@ type StreamEventPayload = {
   status?: number;
   sessionId?: string;
   title?: string;
+  position?: number;
+  queueDepth?: number;
+  promptAfterMs?: number;
+  waitedMs?: number;
+  startedAt?: string;
+};
+
+type QueueState = {
+  requestId: string;
+  position: number;
+  queueDepth: number;
+  model: string;
+  promptAfterMs: number;
+  waitedMs?: number;
+  promptVisible: boolean;
 };
 
 type TranscriptEntry =
@@ -175,6 +201,14 @@ function parseEventBlock(eventBlock: string) {
     eventName,
     payload
   };
+}
+
+function formatQueueNotice(position: number, queueDepth: number) {
+  if (position <= 1) {
+    return queueDepth <= 1 ? "You are first in line for the next Ollama slot." : "You are next in line for the next Ollama slot.";
+  }
+
+  return `Queued at position ${position} of ${queueDepth}.`;
 }
 
 function appendToLatestAssistant(
@@ -425,6 +459,7 @@ export function App() {
   const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [metrics, setMetrics] = useState<MetricsResponse | null>(null);
+  const [runtime, setRuntime] = useState<RuntimeResponse | null>(null);
   const [defaults, setDefaults] = useState<AppDefaults>(fallbackDefaults);
   const [defaultSystemPrompt, setDefaultSystemPrompt] = useState(fallbackDefaults.systemPrompt);
   const [defaultRequestHistoryCount, setDefaultRequestHistoryCount] = useState(String(fallbackDefaults.requestHistoryCount));
@@ -462,7 +497,9 @@ export function App() {
   const [statusText, setStatusText] = useState("Ready");
   const [isStreaming, setIsStreaming] = useState(false);
   const [isModelSwitching, setIsModelSwitching] = useState(false);
+  const [isRetargetingQueuedRequest, setIsRetargetingQueuedRequest] = useState(false);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  const [queueState, setQueueState] = useState<QueueState | null>(null);
   const [transcriptPinned, setTranscriptPinned] = useState(true);
   const [thinkingPinned, setThinkingPinned] = useState(true);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -493,6 +530,10 @@ export function App() {
 
     return availableModels[0]?.name ?? "";
   };
+
+  const isQueued = Boolean(queueState);
+  const canRetargetQueuedModel = isQueued && !isRetargetingQueuedRequest;
+  const fastPathModels = new Set(runtime?.fastPathModels ?? []);
 
   const loadModels = async () => {
     const modelsResponse = await fetch(`${apiBaseUrl}/api/models`);
@@ -586,6 +627,23 @@ export function App() {
     }
   };
 
+  const loadRuntime = async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/runtime/ollama`);
+
+      if (!response.ok) {
+        throw new Error(await readResponseError(response));
+      }
+
+      const payload = (await response.json()) as RuntimeResponse;
+      setRuntime(payload);
+      return payload;
+    } catch {
+      setRuntime(null);
+      return null;
+    }
+  };
+
   const loadSessionDetail = async (sessionId: string, forceTranscriptSync = false) => {
     try {
       const response = await fetch(`${apiBaseUrl}/api/sessions/${sessionId}`);
@@ -660,6 +718,12 @@ export function App() {
     if (!warmResponse.ok) {
       throw new Error(await readResponseError(warmResponse));
     }
+
+    return (await warmResponse.json()) as {
+      status?: "warmed" | "already_resident" | "skipped_busy" | "skipped_queued";
+      ready?: boolean;
+      model?: string;
+    };
   };
 
   useEffect(() => {
@@ -671,7 +735,8 @@ export function App() {
         loadSessions(),
         loadHealth(),
         loadMetrics(),
-        loadDefaults()
+        loadDefaults(),
+        loadRuntime()
       ]);
 
       if (!active) {
@@ -735,12 +800,13 @@ export function App() {
 
     void loadData();
 
-    const interval = setInterval(() => {
-      if (!active) {
-        return;
-      }
+      const interval = setInterval(() => {
+        if (!active) {
+          return;
+        }
 
       void loadMetrics();
+      void loadRuntime();
     }, 30_000);
 
     return () => {
@@ -812,11 +878,76 @@ export function App() {
   const handleStreamEvent = (eventName: string | undefined, payload: StreamEventPayload) => {
     if (eventName === "meta" && payload.requestId) {
       setActiveRequestId(payload.requestId);
-      setStatusText(`Waiting for ${payload.model ?? selectedModel}...`);
+      if (!queueState || queueState.requestId !== payload.requestId) {
+        setStatusText(`Waiting for ${payload.model ?? selectedModel}...`);
+      }
+    }
+
+    if (
+      eventName === "queued" &&
+      payload.requestId &&
+      payload.position !== undefined &&
+      payload.queueDepth !== undefined &&
+      payload.model &&
+      payload.promptAfterMs !== undefined
+    ) {
+      setQueueState({
+        requestId: payload.requestId,
+        position: payload.position,
+        queueDepth: payload.queueDepth,
+        model: payload.model,
+        promptAfterMs: payload.promptAfterMs,
+        promptVisible: false
+      });
+      setStatusText(`Queued for ${payload.model}`);
+      setLiveThinking("");
+      setLiveThinkingNotice(`All Ollama slots are busy. ${formatQueueNotice(payload.position, payload.queueDepth)}`);
+    }
+
+    if (eventName === "queue_update" && payload.requestId && payload.position !== undefined && payload.queueDepth !== undefined) {
+      const nextPosition = payload.position;
+      const nextQueueDepth = payload.queueDepth;
+
+      setQueueState((current) =>
+        current && current.requestId === payload.requestId
+          ? {
+              ...current,
+              position: nextPosition,
+              queueDepth: nextQueueDepth
+            }
+          : current
+      );
+      setStatusText(nextPosition <= 1 ? "Next in queue" : `Queued at position ${nextPosition}`);
+      setLiveThinkingNotice(`All Ollama slots are busy. ${formatQueueNotice(nextPosition, nextQueueDepth)}`);
+    }
+
+    if (eventName === "queue_prompt" && payload.requestId && payload.position !== undefined && payload.waitedMs !== undefined) {
+      const nextPosition = payload.position;
+      const waitedMs = payload.waitedMs;
+
+      setQueueState((current) =>
+        current && current.requestId === payload.requestId
+          ? {
+              ...current,
+              position: nextPosition,
+              waitedMs,
+              promptVisible: true
+            }
+          : current
+      );
+      setStatusText("Still waiting in queue...");
+      setLiveThinkingNotice("The backend is still busy. You can keep waiting or leave the queue.");
+    }
+
+    if (eventName === "started" && payload.requestId) {
+      setQueueState((current) => (current?.requestId === payload.requestId ? null : current));
+      setStatusText(`Starting ${payload.model ?? selectedModel}...`);
+      setLiveThinkingNotice(`The request started on ${payload.model ?? selectedModel}.`);
     }
 
     if (eventName === "thinking_delta") {
       const nextText = payload.text ?? "";
+      setQueueState(null);
       setStatusText("Streaming reasoning...");
       setLiveThinkingNotice(null);
       setLiveThinking((current) => `${current}${nextText}`);
@@ -830,6 +961,7 @@ export function App() {
 
     if (eventName === "response_delta") {
       const nextText = payload.text ?? "";
+      setQueueState(null);
       setStatusText("Streaming answer...");
       setLiveThinkingNotice((current) =>
         current || liveThinking.trim() !== "" ? current : "This model does not stream a separate thinking trace."
@@ -853,6 +985,7 @@ export function App() {
 
     if (eventName === "thinking_unavailable") {
       const notice = payload.text ?? "This model does not stream a separate thinking trace.";
+      setQueueState(null);
       setLiveThinkingNotice(notice);
       setStatusText("Streaming answer...");
       setMessages((current) =>
@@ -893,6 +1026,8 @@ export function App() {
     if (eventName === "error") {
       const errorMessage = payload.message ?? "Unknown upstream error";
       const errorModel = payload.model ?? selectedModel;
+      setQueueState(null);
+      setActiveRequestId(null);
       setLiveThinking(errorMessage);
       setStatusText("Request failed");
       setMessages((current) =>
@@ -907,7 +1042,9 @@ export function App() {
     }
 
     if (eventName === "done") {
-      setStatusText(payload.finishReason === "aborted" ? "Stopped" : "Complete");
+      setQueueState(null);
+      setActiveRequestId(null);
+      setStatusText(payload.finishReason === "aborted" ? "Stopped" : payload.finishReason === "cancelled" ? "Queue cancelled" : "Complete");
       setMessages((current) =>
         appendToLatestAssistant(current, (message) => ({
           ...message,
@@ -934,6 +1071,7 @@ export function App() {
     setPrompt("");
     setLiveThinking("");
     setLiveThinkingNotice(null);
+    setQueueState(null);
     setStatusText(`Sending prompt to ${selectedModel}...`);
     setIsStreaming(true);
     setActiveRequestId(requestId);
@@ -1042,18 +1180,21 @@ export function App() {
 
   const handleStop = async () => {
     const requestId = activeRequestId;
+    const wasQueued = Boolean(queueState);
 
     abortControllerRef.current?.abort();
     await streamReaderRef.current?.cancel();
     streamReaderRef.current = null;
     abortControllerRef.current = null;
-    setLiveThinkingNotice("Generation stopped.");
-    setStatusText("Stopped");
+    setQueueState(null);
+    setActiveRequestId(null);
+    setLiveThinkingNotice(wasQueued ? "Queued request cancelled." : "Generation stopped.");
+    setStatusText(wasQueued ? "Queue cancelled" : "Stopped");
     setMessages((current) =>
       appendToLatestAssistant(current, (message) => ({
         ...message,
         isStreaming: false,
-        content: message.content || "Generation stopped before any answer was returned."
+        content: message.content || (wasQueued ? "Queued request cancelled before generation started." : "Generation stopped before any answer was returned.")
       }))
     );
     setIsStreaming(false);
@@ -1093,6 +1234,7 @@ export function App() {
 
   const handleRefreshModels = async () => {
     const refreshedModels = await loadModels();
+    void loadRuntime();
     const nextModel = pickAvailableModel(selectedModel, refreshedModels, activeSession?.model ?? sessions[0]?.model ?? null);
     setSelectedModel(nextModel);
   };
@@ -1100,7 +1242,73 @@ export function App() {
   const handleModelSelection = async (nextModel: string) => {
     setModelMenuOpen(false);
 
-    if (!nextModel || nextModel === selectedModel || isStreaming || isModelSwitching) {
+    if (!nextModel || nextModel === selectedModel || isModelSwitching) {
+      return;
+    }
+
+    if (queueState && (queueState.requestId || activeRequestId)) {
+      const previousModel = selectedModel;
+      const queuedRequestId = queueState.requestId || activeRequestId;
+
+      if (!queuedRequestId) {
+        return;
+      }
+
+      setSelectedModel(nextModel);
+      setIsRetargetingQueuedRequest(true);
+      setStatusText(`Updating queued request to ${nextModel}...`);
+      setLiveThinkingNotice(`Switching the queued request to ${nextModel}.`);
+
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/chat/requests/${queuedRequestId}`, {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            model: nextModel
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(await readResponseError(response));
+        }
+
+        const payload = (await response.json()) as {
+          request: {
+            requestId: string;
+            state: string;
+            model: string;
+            position?: number;
+            queueDepth?: number;
+          };
+        };
+
+        setQueueState((current) =>
+          current
+            ? {
+                ...current,
+                requestId: payload.request.requestId,
+                model: payload.request.model,
+                position: payload.request.position ?? current.position,
+                queueDepth: payload.request.queueDepth ?? current.queueDepth
+              }
+            : current
+        );
+        setStatusText(`Queued for ${payload.request.model}`);
+        setLiveThinkingNotice(`Queued request updated to ${payload.request.model}.`);
+      } catch (error) {
+        setSelectedModel(previousModel);
+        setStatusText("Queued model change failed");
+        setLiveThinkingNotice(error instanceof Error ? error.message : `Could not update the queued request to ${nextModel}.`);
+      } finally {
+        setIsRetargetingQueuedRequest(false);
+      }
+
+      return;
+    }
+
+    if (isStreaming) {
       return;
     }
 
@@ -1113,7 +1321,7 @@ export function App() {
     setLiveThinkingNotice(`Preloading ${nextModel} before chat starts.`);
 
     try {
-      await warmModel(nextModel);
+      const warmResult = await warmModel(nextModel);
 
       if (selectedSessionId) {
         const response = await fetch(`${apiBaseUrl}/api/sessions/${selectedSessionId}/model-switch`, {
@@ -1147,8 +1355,14 @@ export function App() {
         );
       }
 
-      setStatusText(`${nextModel} ready`);
-      setLiveThinkingNotice(`Model ${nextModel} is loaded and ready.`);
+      if (warmResult.status === "skipped_busy" || warmResult.status === "skipped_queued") {
+        setStatusText(`${nextModel} selected`);
+        setLiveThinkingNotice(`Model ${nextModel} will load when the next request starts.`);
+      } else {
+        setStatusText(`${nextModel} ready`);
+        setLiveThinkingNotice(`Model ${nextModel} is loaded and ready.`);
+      }
+      void loadRuntime();
     } catch (error) {
       setSelectedModel(previousModel);
       setStatusText("Model switch failed");
@@ -1386,6 +1600,13 @@ export function App() {
       ? `${metrics.gpu.usedMb.toFixed(0)} MB / ${metrics.gpu.totalMb.toFixed(0)} MB`
       : "Metrics unavailable";
   const orderedSessions = sortSessionsDescending(sessions);
+  const runtimeSummary = runtime
+    ? runtime.busy
+      ? `${runtime.activeRequests}/${runtime.maxParallelRequests} slots busy, ${runtime.queueDepth} queued`
+      : runtime.fastPathModels.length > 0
+        ? `Fast path: ${runtime.fastPathModels.join(", ")}`
+        : "Runtime ready"
+    : "Runtime data unavailable";
 
   return (
     <div className="app-shell">
@@ -1446,30 +1667,48 @@ export function App() {
                 aria-expanded={modelMenuOpen}
                 aria-label="Models"
                 className="icon-button"
-                disabled={isStreaming || isModelSwitching}
+                disabled={isModelSwitching || (isStreaming && !canRetargetQueuedModel)}
                 type="button"
                 onClick={() => setModelMenuOpen((current) => !current)}
               >
                 <ModelIcon />
               </button>
               <div className={`model-menu-card ${modelMenuOpen ? "open" : ""}`}>
-                <label className="model-select-label">
+                <div className="model-select-label">
                   <span className="eyebrow">Choose model</span>
-                  <select
-                    aria-label="Model selector"
-                    className="model-select"
-                    disabled={isStreaming || isModelSwitching}
-                    onChange={(event) => void handleModelSelection(event.target.value)}
-                    value={selectedModel}
-                  >
-                    {models.map((model) => (
-                      <option key={model.name} value={model.name}>
-                        {model.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button className="secondary-button" disabled={isStreaming || isModelSwitching} type="button" onClick={() => void handleRefreshModels()}>
+                  <div aria-label="Model selector" className="model-list" role="listbox">
+                    {models.map((model) => {
+                      const isSelected = model.name === selectedModel;
+                      const isFastPath = fastPathModels.has(model.name);
+
+                      return (
+                        <button
+                          aria-selected={isSelected}
+                          className={`model-option ${isSelected ? "selected" : ""} ${isFastPath ? "fast-path" : ""}`}
+                          key={model.name}
+                          role="option"
+                          type="button"
+                          onClick={() => void handleModelSelection(model.name)}
+                        >
+                          <span className="model-option-name">{model.name}</span>
+                          <span className="model-option-badges">
+                            {isSelected ? <span className="model-badge selected">Selected</span> : null}
+                            {isFastPath ? <span className="model-badge fast-path">Fast path</span> : null}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <p className="field-help" role="status">
+                  {runtimeSummary}
+                </p>
+                <button
+                  className="secondary-button"
+                  disabled={isModelSwitching || isStreaming}
+                  type="button"
+                  onClick={() => void handleRefreshModels()}
+                >
                   Refresh models
                 </button>
               </div>
@@ -1542,6 +1781,31 @@ export function App() {
               <span>Loading {selectedModel}…</span>
             </div>
           ) : null}
+          {queueState ? (
+            <div className="queue-banner" role="status">
+              <div className="queue-banner-copy">
+                <strong>Queued for {queueState.model}</strong>
+                <span>{formatQueueNotice(queueState.position, queueState.queueDepth)}</span>
+              </div>
+              {queueState.promptVisible ? (
+                <div className="queue-banner-actions">
+                  <span className="queue-banner-hint">Still waiting after {Math.max(1, Math.round((queueState.waitedMs ?? 0) / 1000))}s.</span>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() =>
+                      setQueueState((current) => (current ? { ...current, promptVisible: false } : current))
+                    }
+                  >
+                    Keep waiting
+                  </button>
+                  <button className="primary-button" type="button" onClick={() => void handleStop()}>
+                    Leave queue
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <textarea
             aria-label="Prompt"
             className="composer-input"
@@ -1567,7 +1831,7 @@ export function App() {
               </button>
               {isStreaming ? (
                 <button className="primary-button" type="button" onClick={handleStop}>
-                  Stop
+                  {queueState ? "Leave queue" : "Stop"}
                 </button>
               ) : (
                 <button className="primary-button" disabled={isModelSwitching} type="submit">
@@ -1754,6 +2018,7 @@ export function App() {
                     {metrics?.status === "ok" ? "Metrics current" : metrics?.status === "stale" ? "Metrics stale" : "Metrics unavailable"}
                   </span>
                 </div>
+                <p className="field-help">{runtimeSummary}</p>
                 <div className="meter">
                   <div
                     className={`meter-bar ${metrics?.status === "stale" ? "stale" : ""}`}

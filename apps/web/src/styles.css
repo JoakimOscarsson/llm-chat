@@ -417,6 +417,73 @@ h2 {
   transform: translateY(0);
 }
 
+.model-list {
+  display: grid;
+  gap: 8px;
+}
+
+.model-option {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.88);
+  color: #0f172a;
+  text-align: left;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.model-option:hover {
+  border-color: rgba(59, 130, 246, 0.28);
+  box-shadow: 0 10px 18px rgba(37, 99, 235, 0.08);
+}
+
+.model-option.selected {
+  border-color: rgba(37, 99, 235, 0.34);
+  background: rgba(239, 246, 255, 0.95);
+}
+
+.model-option.fast-path {
+  background: rgba(236, 253, 245, 0.95);
+}
+
+.model-option.selected.fast-path {
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.96), rgba(236, 253, 245, 0.96));
+}
+
+.model-option-name {
+  font-weight: 600;
+}
+
+.model-option-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.model-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 0.73rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.model-badge.selected {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+}
+
+.model-badge.fast-path {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+}
+
 .widget-summary {
   list-style: none;
   display: flex;
@@ -479,6 +546,38 @@ h2 {
 
 .composer {
   position: relative;
+}
+
+.queue-banner {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(59, 130, 246, 0.16);
+  border-radius: 18px;
+  background: rgba(239, 246, 255, 0.78);
+  color: #1e3a8a;
+}
+
+.queue-banner-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.queue-banner-copy strong {
+  font-size: 0.94rem;
+}
+
+.queue-banner-copy span,
+.queue-banner-hint {
+  color: #475569;
+  font-size: 0.84rem;
+}
+
+.queue-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .thinking-box {
