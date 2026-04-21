@@ -20,7 +20,11 @@ test("GET /api/models proxies the model service response", async () => {
             {
               name: "llama3.1:8b",
               modifiedAt: "2026-04-20T18:00:00Z",
-              size: 123
+              size: 123,
+              chatCapable: true,
+              capabilities: ["completion"],
+              family: "llama",
+              families: ["llama"]
             }
           ],
           fetchedAt: "2026-04-20T18:00:00Z"
@@ -44,7 +48,11 @@ test("GET /api/models proxies the model service response", async () => {
     {
       name: "llama3.1:8b",
       modifiedAt: "2026-04-20T18:00:00Z",
-      size: 123
+      size: 123,
+      chatCapable: true,
+      capabilities: ["completion"],
+      family: "llama",
+      families: ["llama"]
     }
   ]);
 });

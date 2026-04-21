@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
+const SHELL_HORIZONTAL_PADDING = 32;
+const CHAT_PANEL_MAX_WIDTH = 980;
+const LEFT_SIDEBAR_WIDTH = 280;
+const RIGHT_SIDEBAR_WIDTH = 348;
 
 type ModelSummary = {
   name: string;
@@ -427,8 +431,10 @@ export function App() {
   const transcriptRef = useRef<HTMLElement | null>(null);
   const thinkingScrollRef = useRef<HTMLDivElement | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
-  const leftSidebarMode = viewportWidth >= 1320 ? "docked" : "overlay";
-  const rightSidebarMode = viewportWidth >= 1400 ? "docked" : "overlay";
+  const leftSidebarMode =
+    viewportWidth >= SHELL_HORIZONTAL_PADDING + CHAT_PANEL_MAX_WIDTH + LEFT_SIDEBAR_WIDTH * 2 ? "docked" : "overlay";
+  const rightSidebarMode =
+    viewportWidth >= SHELL_HORIZONTAL_PADDING + CHAT_PANEL_MAX_WIDTH + RIGHT_SIDEBAR_WIDTH * 2 ? "docked" : "overlay";
 
   const pickAvailableModel = (
     preferredModel: string | null | undefined,

@@ -16,7 +16,20 @@ test("GET /internal/models fetches normalized models from the provider adapter",
             {
               name: "llama3.1:8b",
               modifiedAt: "2026-04-20T18:00:00Z",
-              size: 123
+              size: 123,
+              chatCapable: true,
+              capabilities: ["completion"],
+              family: "llama",
+              families: ["llama"]
+            },
+            {
+              name: "embeddinggemma",
+              modifiedAt: "2026-04-20T18:01:00Z",
+              size: 456,
+              chatCapable: false,
+              capabilities: ["embedding"],
+              family: "embeddinggemma",
+              families: ["embeddinggemma"]
             }
           ],
           fetchedAt: "2026-04-20T18:00:00Z"
@@ -39,7 +52,11 @@ test("GET /internal/models fetches normalized models from the provider adapter",
     {
       name: "llama3.1:8b",
       modifiedAt: "2026-04-20T18:00:00Z",
-      size: 123
+      size: 123,
+      chatCapable: true,
+      capabilities: ["completion"],
+      family: "llama",
+      families: ["llama"]
     }
   ]);
 });

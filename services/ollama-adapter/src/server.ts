@@ -213,7 +213,11 @@ async function fetchModels(config: OllamaAdapterConfig, fetchImpl: typeof fetch)
         {
           name: "llama3.1:8b",
           modifiedAt: "2026-04-20T18:00:00.000Z",
-          size: 4661224676
+          size: 4661224676,
+          chatCapable: true,
+          capabilities: ["completion"],
+          family: "llama",
+          families: ["llama"]
         }
       ],
       fetchedAt: new Date().toISOString()
@@ -228,15 +232,76 @@ async function fetchModels(config: OllamaAdapterConfig, fetchImpl: typeof fetch)
   });
 
   const payload = (await response.json()) as {
-    models?: Array<{ name: string; modified_at?: string; size?: number }>;
+    models?: Array<{
+      name: string;
+      modified_at?: string;
+      size?: number;
+      details?: {
+        family?: string;
+        families?: string[];
+      };
+    }>;
   };
 
+  const models = await Promise.all(
+    (payload.models ?? []).map(async (model) => {
+      let capabilities: string[] = [];
+      let family = model.details?.family;
+      let families = model.details?.families ?? [];
+
+      try {
+        const showResponse = await fetchImpl(`${config.ollamaBaseUrl}/api/show`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "CF-Access-Client-Id": config.cfAccessClientId,
+            "CF-Access-Client-Secret": config.cfAccessClientSecret
+          },
+          body: JSON.stringify({
+            model: model.name,
+            verbose: false
+          })
+        });
+
+        if (showResponse.ok) {
+          const showPayload = (await showResponse.json()) as {
+            capabilities?: string[];
+            details?: {
+              family?: string;
+              families?: string[];
+            };
+          };
+
+          capabilities = showPayload.capabilities ?? [];
+          family = showPayload.details?.family ?? family;
+          families = showPayload.details?.families ?? families;
+        }
+      } catch {
+        // Fall back to tags-only metadata when show lookups fail.
+      }
+
+      const lowerCasedName = model.name.toLowerCase();
+      const familyNames = [family ?? "", ...families].map((entry) => entry.toLowerCase());
+      const hasEmbeddingSignal =
+        capabilities.includes("embedding") ||
+        lowerCasedName.includes("embed") ||
+        familyNames.some((entry) => entry.includes("embed") || entry.includes("bert"));
+      const chatCapable = capabilities.length > 0 ? capabilities.includes("completion") : !hasEmbeddingSignal;
+
+      return {
+        name: model.name,
+        modifiedAt: model.modified_at ?? new Date(0).toISOString(),
+        size: model.size ?? 0,
+        chatCapable,
+        capabilities,
+        family,
+        families
+      };
+    })
+  );
+
   return modelsResponseSchema.parse({
-    models: (payload.models ?? []).map((model) => ({
-      name: model.name,
-      modifiedAt: model.modified_at ?? new Date(0).toISOString(),
-      size: model.size ?? 0
-    })),
+    models,
     fetchedAt: new Date().toISOString()
   });
 }

@@ -24,7 +24,11 @@ test("GET /internal/provider/models returns stub models when stub mode is enable
     {
       name: "llama3.1:8b",
       modifiedAt: "2026-04-20T18:00:00.000Z",
-      size: 4661224676
+      size: 4661224676,
+      chatCapable: true,
+      capabilities: ["completion"],
+      family: "llama",
+      families: ["llama"]
     }
   ]);
 });
@@ -42,25 +46,45 @@ test("GET /internal/provider/models forwards Cloudflare headers and normalizes t
       useStub: false
     },
     fetchImpl: async (input, init) => {
-      assert.equal(String(input), "https://example-ollama.test/api/tags");
-      seenHeaders = new Headers(init?.headers);
+      if (String(input) === "https://example-ollama.test/api/tags") {
+        seenHeaders = new Headers(init?.headers);
 
-      return new Response(
-        JSON.stringify({
-          models: [
-            {
-              name: "llama3.1:8b",
-              modified_at: "2026-04-20T18:00:00Z",
-              size: 123
+        return new Response(
+          JSON.stringify({
+            models: [
+              {
+                name: "llama3.1:8b",
+                modified_at: "2026-04-20T18:00:00Z",
+                size: 123
+              }
+            ]
+          }),
+          {
+            headers: {
+              "content-type": "application/json"
             }
-          ]
-        }),
-        {
-          headers: {
-            "content-type": "application/json"
           }
-        }
-      );
+        );
+      }
+
+      if (String(input) === "https://example-ollama.test/api/show") {
+        return new Response(
+          JSON.stringify({
+            details: {
+              family: "llama",
+              families: ["llama"]
+            },
+            capabilities: ["completion"]
+          }),
+          {
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        );
+      }
+
+      throw new Error(`Unhandled fetch for ${String(input)}`);
     }
   });
 
@@ -77,7 +101,11 @@ test("GET /internal/provider/models forwards Cloudflare headers and normalizes t
     {
       name: "llama3.1:8b",
       modifiedAt: "2026-04-20T18:00:00Z",
-      size: 123
+      size: 123,
+      chatCapable: true,
+      capabilities: ["completion"],
+      family: "llama",
+      families: ["llama"]
     }
   ]);
 });

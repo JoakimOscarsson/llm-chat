@@ -4,7 +4,11 @@ import { isoDateSchema } from "./common.js";
 export const modelSchema = z.object({
   name: z.string(),
   size: z.number().nonnegative(),
-  modifiedAt: isoDateSchema
+  modifiedAt: isoDateSchema,
+  chatCapable: z.boolean().default(true),
+  capabilities: z.array(z.string()).default([]),
+  family: z.string().optional(),
+  families: z.array(z.string()).default([])
 });
 
 export const modelsResponseSchema = z.object({

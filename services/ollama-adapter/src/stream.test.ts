@@ -112,6 +112,122 @@ test("POST /internal/provider/models/warm preloads a model through generate", as
   assert.equal(response.json().loadDuration, 125_000_000);
 });
 
+test("GET /internal/provider/models enriches tags with capabilities from show", async () => {
+  const requests: string[] = [];
+
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false
+    },
+    fetchImpl: async (input, init) => {
+      requests.push(`${init?.method ?? "GET"} ${String(input)}`);
+
+      if (String(input) === "https://example-ollama.test/api/tags") {
+        return new Response(
+          JSON.stringify({
+            models: [
+              {
+                name: "llama3.1:8b",
+                modified_at: "2026-04-20T18:00:00Z",
+                size: 123,
+                details: {
+                  family: "llama",
+                  families: ["llama"]
+                }
+              },
+              {
+                name: "embeddinggemma",
+                modified_at: "2026-04-20T18:01:00Z",
+                size: 456,
+                details: {
+                  family: "embeddinggemma",
+                  families: ["embeddinggemma"]
+                }
+              }
+            ]
+          }),
+          {
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        );
+      }
+
+      if (String(input) === "https://example-ollama.test/api/show") {
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+
+        if (body.model === "llama3.1:8b") {
+          return new Response(
+            JSON.stringify({
+              capabilities: ["completion"],
+              details: {
+                family: "llama",
+                families: ["llama"]
+              }
+            }),
+            {
+              headers: {
+                "content-type": "application/json"
+              }
+            }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            capabilities: ["embedding"],
+            details: {
+              family: "embeddinggemma",
+              families: ["embeddinggemma"]
+            }
+          }),
+          {
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        );
+      }
+
+      throw new Error(`Unhandled request: ${String(input)}`);
+    }
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/internal/provider/models"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(requests.filter((entry) => entry === "POST https://example-ollama.test/api/show").length, 2);
+  assert.deepEqual(response.json().models, [
+    {
+      name: "llama3.1:8b",
+      modifiedAt: "2026-04-20T18:00:00Z",
+      size: 123,
+      chatCapable: true,
+      capabilities: ["completion"],
+      family: "llama",
+      families: ["llama"]
+    },
+    {
+      name: "embeddinggemma",
+      modifiedAt: "2026-04-20T18:01:00Z",
+      size: 456,
+      chatCapable: false,
+      capabilities: ["embedding"],
+      family: "embeddinggemma",
+      families: ["embeddinggemma"]
+    }
+  ]);
+});
+
 test("POST /internal/provider/chat/stream normalizes a real Ollama NDJSON stream", async () => {
   const upstreamBody = [
     JSON.stringify({

@@ -23,7 +23,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ModelServiceCo
 
 async function fetchModels(config: ModelServiceConfig, fetchImpl: typeof fetch) {
   const response = await fetchImpl(`${config.ollamaAdapterUrl}/internal/provider/models`);
-  return modelsResponseSchema.parse(await response.json());
+  const payload = modelsResponseSchema.parse(await response.json());
+
+  return {
+    ...payload,
+    models: payload.models.filter((model) => model.chatCapable)
+  };
 }
 
 async function warmModel(config: ModelServiceConfig, fetchImpl: typeof fetch, body: { model: string; keep_alive?: string | number }) {
