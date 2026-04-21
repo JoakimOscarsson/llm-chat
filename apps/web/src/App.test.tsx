@@ -110,7 +110,7 @@ test("renders discovered models from the gateway", async () => {
   fireEvent.click(screen.getAllByRole("button", { name: /expand settings sidebar/i })[0]!);
   expect(screen.getAllByText("Gateway ready").length).toBeGreaterThan(0);
   expect(screen.getAllByText("Metrics unavailable").length).toBeGreaterThan(0);
-  expect(screen.getByText("Pick a model, send a prompt, and the conversation will build here.")).toBeInTheDocument();
+  expect(screen.getByText("Start a new conversation when you’re ready.")).toBeInTheDocument();
   expect(screen.queryByText("How should this chat app be structured?")).not.toBeInTheDocument();
 });
 
@@ -553,7 +553,7 @@ test("clears transcript history for the active session", async () => {
   });
 
   expect(screen.queryByText("Count to 10.")).not.toBeInTheDocument();
-  expect(screen.getByText("Pick a model, send a prompt, and the conversation will build here.")).toBeInTheDocument();
+  expect(screen.getByText("Start a new conversation when you’re ready.")).toBeInTheDocument();
   expect(screen.getByText("History cleared")).toBeInTheDocument();
 });
 

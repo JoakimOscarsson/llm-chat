@@ -270,6 +270,66 @@ const settingHints = {
     "Requests a separate reasoning stream when the selected model supports it. Unsupported models will fall back automatically."
 } as const;
 
+function IconButton({
+  label,
+  children,
+  onClick,
+  expanded
+}: {
+  label: string;
+  children: React.ReactNode;
+  onClick?: () => void;
+  expanded?: boolean;
+}) {
+  return (
+    <button
+      aria-expanded={expanded}
+      aria-label={label}
+      className="icon-button"
+      type="button"
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ChatsIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20">
+      <path d="M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 16 13.5H9.4L6 16v-2.5H4A1.5 1.5 0 0 1 2.5 12V6A1.5 1.5 0 0 1 4 4.5Z" />
+    </svg>
+  );
+}
+
+function ModelIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20">
+      <path d="M4.5 5.5h11v9h-11z" />
+      <path d="M7 3.5v2M10 3.5v2M13 3.5v2M7 14.5v2M10 14.5v2M13 14.5v2M3.5 8h2M3.5 11.5h2M14.5 8h2M14.5 11.5h2" />
+    </svg>
+  );
+}
+
+function ControlsIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20">
+      <path d="M5 5.5h10M5 10h10M5 14.5h10" />
+      <circle cx="8" cy="5.5" r="1.5" />
+      <circle cx="12.5" cy="10" r="1.5" />
+      <circle cx="7" cy="14.5" r="1.5" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20">
+      <path d="M5 5l10 10M15 5 5 15" />
+    </svg>
+  );
+}
+
 export function App() {
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
@@ -958,69 +1018,51 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${leftSidebarOpen ? "expanded" : "collapsed"}`}>
-        <div className="sidebar-header">
-          <button
-            aria-expanded={leftSidebarOpen}
-            aria-label={leftSidebarOpen ? "Collapse sessions sidebar" : "Expand sessions sidebar"}
-            className="sidebar-toggle"
-            type="button"
-            onClick={() => setLeftSidebarOpen((current) => !current)}
-          >
-            {leftSidebarOpen ? "Hide sessions" : "Sessions"}
-          </button>
-          {leftSidebarOpen ? (
-            <button className="primary-button" type="button" onClick={() => void handleCreateSession()}>
-              New session
-            </button>
-          ) : null}
-        </div>
-        {leftSidebarOpen ? (
-          <>
+      {leftSidebarOpen ? (
+        <aside className="sidebar expanded">
+          <div className="sidebar-header">
             <div>
               <p className="eyebrow">Sessions</p>
               <h1>LLM Chat</h1>
             </div>
-            <div className="session-list">
-              {sessions.map((session) => (
-                <button
-                  aria-pressed={selectedSessionId === session.id}
-                  className="session-card"
-                  key={session.id}
-                  type="button"
-                  onClick={() => setSelectedSessionId(session.id)}
-                >
-                  <span>{session.title}</span>
-                  <small>{session.updatedAt}</small>
-                </button>
-              ))}
-            </div>
-          </>
-        ) : (
-          <div className="sidebar-collapsed-copy">
-            <span>{sessions.length} chats</span>
+            <IconButton label="Collapse sessions sidebar" onClick={() => setLeftSidebarOpen(false)}>
+              <CloseIcon />
+            </IconButton>
           </div>
-        )}
-      </aside>
+          <button className="primary-button" type="button" onClick={() => void handleCreateSession()}>
+            New session
+          </button>
+          <div className="session-list">
+            {sessions.map((session) => (
+              <button
+                aria-pressed={selectedSessionId === session.id}
+                className="session-card"
+                key={session.id}
+                type="button"
+                onClick={() => setSelectedSessionId(session.id)}
+              >
+                <span>{session.title}</span>
+                <small>{session.updatedAt}</small>
+              </button>
+            ))}
+          </div>
+        </aside>
+      ) : null}
 
       <main className="chat-panel">
         <header className="panel-header">
-          <button
-            aria-expanded={leftSidebarOpen}
-            aria-label={leftSidebarOpen ? "Collapse sessions sidebar" : "Expand sessions sidebar"}
-            className="panel-icon-button"
-            type="button"
-            onClick={() => setLeftSidebarOpen((current) => !current)}
-          >
-            Chats
-          </button>
+          <IconButton label={leftSidebarOpen ? "Collapse sessions sidebar" : "Expand sessions sidebar"} onClick={() => setLeftSidebarOpen((current) => !current)} expanded={leftSidebarOpen}>
+            <ChatsIcon />
+          </IconButton>
           <div className="panel-title">
             <p className="eyebrow">Current model</p>
             <h2>{selectedModel || "Loading models..."}</h2>
           </div>
           <div className="header-actions">
             <details className="model-menu">
-              <summary className="panel-icon-button">Models</summary>
+              <summary className="icon-button" aria-label="Models">
+                <ModelIcon />
+              </summary>
               <div className="model-menu-card">
                 <label className="model-select-label">
                   <span className="eyebrow">Choose model</span>
@@ -1042,15 +1084,9 @@ export function App() {
                 </button>
               </div>
             </details>
-            <button
-              aria-expanded={rightSidebarOpen}
-              aria-label={rightSidebarOpen ? "Collapse settings sidebar" : "Expand settings sidebar"}
-              className="panel-icon-button"
-              type="button"
-              onClick={() => setRightSidebarOpen((current) => !current)}
-            >
-              Controls
-            </button>
+            <IconButton label={rightSidebarOpen ? "Collapse settings sidebar" : "Expand settings sidebar"} onClick={() => setRightSidebarOpen((current) => !current)} expanded={rightSidebarOpen}>
+              <ControlsIcon />
+            </IconButton>
           </div>
         </header>
 
@@ -1075,7 +1111,7 @@ export function App() {
           {messages.length === 0 ? (
             <article className="message empty-state">
               <p className="eyebrow">Transcript</p>
-              <p>Pick a model, send a prompt, and the conversation will build here.</p>
+              <p>Start a new conversation when you’re ready.</p>
             </article>
           ) : null}
           {messages.map((message) => (
@@ -1134,19 +1170,17 @@ export function App() {
         </form>
       </main>
 
-      <aside className={`utility-panel ${rightSidebarOpen ? "expanded" : "collapsed"}`}>
-        <div className="sidebar-header">
-          <button
-            aria-expanded={rightSidebarOpen}
-            aria-label={rightSidebarOpen ? "Collapse settings sidebar" : "Expand settings sidebar"}
-            className="sidebar-toggle"
-            type="button"
-            onClick={() => setRightSidebarOpen((current) => !current)}
-          >
-            {rightSidebarOpen ? "Hide controls" : "Controls"}
-          </button>
-        </div>
-        {rightSidebarOpen ? (
+      {rightSidebarOpen ? (
+        <aside className="utility-panel expanded">
+          <div className="sidebar-header">
+            <div>
+              <p className="eyebrow">Controls</p>
+              <h2>Session settings</h2>
+            </div>
+            <IconButton label="Collapse settings sidebar" onClick={() => setRightSidebarOpen(false)}>
+              <CloseIcon />
+            </IconButton>
+          </div>
           <>
             <details className="widget disclosure">
               <summary className="widget-summary">
@@ -1327,12 +1361,8 @@ export function App() {
               </div>
             </details>
           </>
-        ) : (
-          <div className="sidebar-collapsed-copy">
-            <span>{metrics?.status === "ok" ? "System ready" : "Open controls"}</span>
-          </div>
-        )}
-      </aside>
+        </aside>
+      ) : null}
     </div>
   );
 }

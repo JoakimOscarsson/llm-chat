@@ -71,40 +71,7 @@ const initialSession: SessionRecord = {
   model: "llama3.1:8b",
   createdAt: fixedNow,
   updatedAt: fixedNow,
-  messages: [
-    {
-      id: "msg_1",
-      role: "user",
-      content: "What have we already learned?",
-      createdAt: "2026-04-20T17:58:00.000Z"
-    },
-    {
-      id: "msg_2",
-      role: "assistant",
-      content: "We confirmed the streaming relay works end to end.",
-      createdAt: "2026-04-20T17:58:04.000Z",
-      thinking: {
-        content: "Summarize the most recent stable milestone first.",
-        collapsedByDefault: true
-      }
-    },
-    {
-      id: "msg_3",
-      role: "user",
-      content: "Show me the failing command.",
-      createdAt: "2026-04-20T17:59:00.000Z"
-    },
-    {
-      id: "msg_4",
-      role: "assistant",
-      content: "The command exits with code 127.",
-      createdAt: "2026-04-20T17:59:05.000Z",
-      thinking: {
-        content: "Point at the concrete shell failure instead of general troubleshooting.",
-        collapsedByDefault: true
-      }
-    }
-  ],
+  messages: [],
   overrides: {}
 };
 

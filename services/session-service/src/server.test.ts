@@ -88,6 +88,36 @@ test("PUT /internal/settings/defaults updates app defaults", async () => {
 test("PATCH /internal/sessions/:sessionId updates overrides and context shaping", async () => {
   const app = createApp();
 
+  await app.inject({
+    method: "POST",
+    url: "/internal/sessions/sess_1/messages",
+    payload: {
+      message: {
+        id: "msg_user_existing",
+        role: "user",
+        content: "Show me the failing command.",
+        createdAt: "2026-04-20T17:59:00.000Z"
+      }
+    }
+  });
+
+  await app.inject({
+    method: "POST",
+    url: "/internal/sessions/sess_1/assistant-result",
+    payload: {
+      message: {
+        id: "msg_assistant_existing",
+        role: "assistant",
+        content: "The command exits with code 127.",
+        createdAt: "2026-04-20T17:59:05.000Z"
+      },
+      thinking: {
+        content: "Point at the concrete shell failure instead of general troubleshooting.",
+        collapsedByDefault: true
+      }
+    }
+  });
+
   const patchResponse = await app.inject({
     method: "PATCH",
     url: "/internal/sessions/sess_1",
