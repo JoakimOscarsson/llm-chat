@@ -129,6 +129,7 @@ These commands are the shared validation path used locally, by the pre-push hook
 - `npm run ci:compose:smoke`
 - `npm run ci:host-metrics:smoke`
 - `npm run ci:coverage`
+- `npm run ci:workflow:lint`
 - `npm run ci:docker:validate`
 - `npm run ci:docker:static-analysis`
 - `npm run test:e2e` for Playwright once a target app is already running

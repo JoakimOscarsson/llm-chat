@@ -12,3 +12,9 @@ npm run ci:compose:smoke
 
 echo "Running host metrics smoke test before push..."
 npm run ci:host-metrics:smoke
+
+echo "Running workflow lint before push..."
+npm run ci:workflow:lint
+
+echo "Running coverage reporting before push..."
+npm run ci:coverage

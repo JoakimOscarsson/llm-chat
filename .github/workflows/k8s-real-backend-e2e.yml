@@ -15,11 +15,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -81,7 +76,7 @@ jobs:
 
       - name: Wait for web endpoint
         run: |
-          for attempt in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if curl --fail --silent http://127.0.0.1:3000 >/tmp/llm-chat-e2e-home.html; then
               exit 0
             fi
@@ -101,6 +96,10 @@ jobs:
       - name: Collect Kubernetes diagnostics on failure
         if: failure()
         run: |
+          if ! kubectl config current-context >/dev/null 2>&1; then
+            echo "No active Kubernetes context is available for diagnostics." >&2
+            exit 0
+          fi
           kubectl -n llm-chat get all -o wide
           kubectl -n llm-chat describe pods
           kubectl -n llm-chat logs deployment/llm-chat-llm-chat-web --tail=200 || true
