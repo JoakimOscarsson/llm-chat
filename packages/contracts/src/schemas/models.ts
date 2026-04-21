@@ -6,7 +6,9 @@ export const modelSchema = z.object({
   size: z.number().nonnegative(),
   modifiedAt: isoDateSchema,
   chatCapable: z.boolean().default(true),
+  capabilitySource: z.enum(["stub", "show", "tags", "unknown"]).default("unknown"),
   capabilities: z.array(z.string()).default([]),
+  exclusionReason: z.enum(["embedding", "missing_capability_metadata", "non_chat_capability"]).optional(),
   family: z.string().optional(),
   families: z.array(z.string()).default([])
 });

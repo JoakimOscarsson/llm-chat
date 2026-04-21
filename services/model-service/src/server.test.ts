@@ -18,6 +18,7 @@ test("GET /internal/models fetches normalized models from the provider adapter",
               modifiedAt: "2026-04-20T18:00:00Z",
               size: 123,
               chatCapable: true,
+              capabilitySource: "show",
               capabilities: ["completion"],
               family: "llama",
               families: ["llama"]
@@ -27,7 +28,9 @@ test("GET /internal/models fetches normalized models from the provider adapter",
               modifiedAt: "2026-04-20T18:01:00Z",
               size: 456,
               chatCapable: false,
+              capabilitySource: "show",
               capabilities: ["embedding"],
+              exclusionReason: "embedding",
               family: "embeddinggemma",
               families: ["embeddinggemma"]
             }
@@ -54,6 +57,69 @@ test("GET /internal/models fetches normalized models from the provider adapter",
       modifiedAt: "2026-04-20T18:00:00Z",
       size: 123,
       chatCapable: true,
+      capabilitySource: "show",
+      capabilities: ["completion"],
+      family: "llama",
+      families: ["llama"]
+    }
+  ]);
+});
+
+test("GET /internal/models excludes capability-unknown models when provider metadata is incomplete", async () => {
+  const app = createApp({
+    config: {
+      port: 4002,
+      ollamaAdapterUrl: "http://ollama-adapter:4005",
+      modelCacheTtlMs: 30_000
+    },
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          models: [
+            {
+              name: "qwen2.5-coder:7b",
+              modifiedAt: "2026-04-20T18:00:00Z",
+              size: 123,
+              chatCapable: false,
+              capabilitySource: "unknown",
+              capabilities: [],
+              exclusionReason: "missing_capability_metadata",
+              families: []
+            },
+            {
+              name: "llama3.1:8b",
+              modifiedAt: "2026-04-20T18:01:00Z",
+              size: 456,
+              chatCapable: true,
+              capabilitySource: "show",
+              capabilities: ["completion"],
+              family: "llama",
+              families: ["llama"]
+            }
+          ],
+          fetchedAt: "2026-04-20T18:00:00Z"
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      )
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/internal/models"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json().models, [
+    {
+      name: "llama3.1:8b",
+      modifiedAt: "2026-04-20T18:01:00Z",
+      size: 456,
+      chatCapable: true,
+      capabilitySource: "show",
       capabilities: ["completion"],
       family: "llama",
       families: ["llama"]
