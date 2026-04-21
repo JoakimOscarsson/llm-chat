@@ -1,4 +1,46 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-llm_chat}
+      POSTGRES_USER: ${POSTGRES_USER:-llm_chat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-llm_chat}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-llm_chat} -d ${POSTGRES_DB:-llm_chat}
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --save
+      - "60"
+      - "1"
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+
   web:
     build:
       context: .
@@ -55,6 +97,12 @@ services:
       context: .
       dockerfile: docker/runtime.Dockerfile
     command: pnpm --filter @llm-chat-app/session-service dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SESSION_STORE_DRIVER: ${SESSION_STORE_DRIVER:-postgres}
+      SESSION_STORE_URL: ${SESSION_STORE_URL:-postgresql://llm_chat:llm_chat@postgres:5432/llm_chat}
     ports:
       - "${SESSION_SERVICE_PORT:-4003}:4003"
 
@@ -71,13 +119,25 @@ services:
       context: .
       dockerfile: docker/runtime.Dockerfile
     command: pnpm --filter @llm-chat-app/ollama-adapter dev
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       CF_ACCESS_CLIENT_ID: ${CF_ACCESS_CLIENT_ID:-}
       CF_ACCESS_CLIENT_SECRET: ${CF_ACCESS_CLIENT_SECRET:-}
       OLLAMA_TIMEOUT_MS: ${OLLAMA_TIMEOUT_MS:-60000}
       OLLAMA_USE_STUB: ${OLLAMA_USE_STUB:-false}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      OLLAMA_MAX_PARALLEL_REQUESTS: ${OLLAMA_MAX_PARALLEL_REQUESTS:-1}
+      OLLAMA_QUEUE_PROMPT_AFTER_MS: ${OLLAMA_QUEUE_PROMPT_AFTER_MS:-15000}
+      OLLAMA_RUNTIME_STATUS_TTL_MS: ${OLLAMA_RUNTIME_STATUS_TTL_MS:-3000}
+      POD_INSTANCE_ID: ${POD_INSTANCE_ID:-ollama-adapter-compose}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "${OLLAMA_ADAPTER_PORT:-4005}:4005"
+
+volumes:
+  postgres-data:
+  redis-data:
