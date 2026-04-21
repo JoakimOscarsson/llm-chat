@@ -1,7 +1,15 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { SESSION_TITLE_MAX_LENGTH, sessionContextResponseSchema, type AppDefaults, type SessionOverrides } from "@llm-chat-app/contracts";
+import {
+  SESSION_TITLE_MAX_LENGTH,
+  ollamaRuntimeSchema,
+  queuedChatRequestPatchSchema,
+  queuedChatRequestResponseSchema,
+  sessionContextResponseSchema,
+  type AppDefaults,
+  type SessionOverrides
+} from "@llm-chat-app/contracts";
 
 export type ChatServiceConfig = {
   port: number;
@@ -75,6 +83,28 @@ async function fetchSessionContext(
 ): Promise<SessionContext> {
   const response = await fetchImpl(`${config.sessionServiceUrl}/internal/sessions/${sessionId}/context`);
   return sessionContextResponseSchema.parse(await response.json());
+}
+
+async function fetchRuntime(config: ChatServiceConfig, fetchImpl: typeof fetch) {
+  const response = await fetchImpl(`${config.ollamaAdapterUrl}/internal/provider/runtime`);
+  return ollamaRuntimeSchema.parse(await response.json());
+}
+
+async function patchQueuedRequest(
+  config: ChatServiceConfig,
+  fetchImpl: typeof fetch,
+  requestId: string,
+  payload: unknown
+) {
+  const response = await fetchImpl(`${config.ollamaAdapterUrl}/internal/provider/chat/requests/${requestId}`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(queuedChatRequestPatchSchema.parse(payload))
+  });
+
+  return queuedChatRequestResponseSchema.parse(await response.json());
 }
 
 async function persistUserMessage(
@@ -196,10 +226,38 @@ function parseEventBlock(eventBlock: string): StreamEvent {
   } as StreamEvent;
 }
 
+function eventSignalsExecutionStart(eventName: string, payload: Record<string, unknown>) {
+  if (["queued", "queue_update", "queue_prompt", "error"].includes(eventName)) {
+    return false;
+  }
+
+  if (eventName === "done") {
+    return payload.finishReason !== "queued_cancelled";
+  }
+
+  return true;
+}
+
+function shouldPersistAssistantResult(
+  executionAccepted: boolean,
+  finishReason: string | undefined,
+  assistantText: string,
+  assistantThinking: string
+) {
+  if (!executionAccepted || finishReason === "queued_cancelled") {
+    return false;
+  }
+
+  if (assistantText.trim() || assistantThinking.trim()) {
+    return true;
+  }
+
+  return finishReason === "stop";
+}
+
 export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   const config = options.config ?? loadConfig();
   const fetchImpl = options.fetchImpl ?? fetch;
-  const activeRequests = new Map<string, AbortController>();
 
   const app = Fastify({
     logger: true
@@ -217,6 +275,13 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     contractVersion: "v1"
   }));
 
+  app.get("/internal/chat/runtime", async () => fetchRuntime(config, fetchImpl));
+
+  app.patch("/internal/chat/requests/:requestId", async (request) => {
+    const requestId = (request.params as { requestId: string }).requestId;
+    return patchQueuedRequest(config, fetchImpl, requestId, request.body ?? {});
+  });
+
   app.post("/internal/chat/stream", async (request, reply) => {
     const payload = (request.body ?? {}) as ChatStreamRequest;
     const requestId = typeof payload.requestId === "string" && payload.requestId.length > 0 ? payload.requestId : randomUUID();
@@ -225,16 +290,13 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     const directMessages = Array.isArray(payload.messages) ? payload.messages : [];
     const sessionId = typeof payload.sessionId === "string" && payload.sessionId.length > 0 ? payload.sessionId : undefined;
 
-    activeRequests.set(requestId, abortController);
     reply.raw.on("close", () => {
       if (!reply.raw.writableEnded) {
         abortController.abort();
-        activeRequests.delete(requestId);
       }
     });
 
     try {
-      reply.header("content-type", "text/event-stream");
       let model = payload.model;
       let messages = directMessages;
       let options = payload.options ?? {};
@@ -244,8 +306,46 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       let assistantThinking = "";
       let sawTerminalEvent = false;
       let streamBuffer = "";
+      let finishReason: string | undefined;
+      let executionAccepted = false;
       const createdAt = new Date().toISOString();
       let shouldGenerateTitle = false;
+      const userMessagePayload =
+        sessionId && message
+          ? {
+              id: `${requestId}-user`,
+              role: "user" as const,
+              content: message,
+              createdAt
+            }
+          : undefined;
+
+      const ensureExecutionAccepted = async () => {
+        if (executionAccepted) {
+          return;
+        }
+
+        executionAccepted = true;
+
+        if (!sessionId || !userMessagePayload) {
+          return;
+        }
+
+        await persistUserMessage(config, fetchImpl, sessionId, userMessagePayload);
+
+        if (shouldGenerateTitle) {
+          const title = await persistSessionTitle(config, fetchImpl, {
+            sessionId,
+            title: message
+          }).catch(() => "");
+
+          if (title) {
+            reply.raw.write("event: session_title\n");
+            reply.raw.write(`data: ${JSON.stringify({ sessionId, title })}\n\n`);
+          }
+        }
+      };
+
       if (sessionId) {
         const context = await fetchSessionContext(config, fetchImpl, sessionId);
         const resolved = resolveSettings(context.globalDefaults, context.overrides);
@@ -263,27 +363,6 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
           ...context.history,
           ...(message ? [{ role: "user", content: message }] : directMessages)
         ];
-
-        if (message) {
-          await persistUserMessage(config, fetchImpl, sessionId, {
-            id: `${requestId}-user`,
-            role: "user",
-            content: message,
-            createdAt
-          });
-
-          if (shouldGenerateTitle) {
-            const title = await persistSessionTitle(config, fetchImpl, {
-              sessionId,
-              title: message
-            }).catch(() => "");
-
-            if (title) {
-              reply.raw.write("event: session_title\n");
-              reply.raw.write(`data: ${JSON.stringify({ sessionId, title })}\n\n`);
-            }
-          }
-        }
       } else if (message && messages.length === 0) {
         messages = [{ role: "user", content: message }];
       }
@@ -304,6 +383,9 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
         }),
         signal: abortController.signal
       });
+
+      reply.code(upstream.status);
+      reply.header("content-type", upstream.headers.get("content-type") ?? "text/event-stream");
 
       if (!upstream.body) {
         const text = await upstream.text();
@@ -331,12 +413,20 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
         for (const eventBlock of eventBlocks) {
           const { eventName, payload } = parseEventBlock(eventBlock);
 
+          if (eventSignalsExecutionStart(eventName, payload)) {
+            await ensureExecutionAccepted();
+          }
+
           if (eventName === "thinking_delta") {
             assistantThinking += typeof payload.text === "string" ? payload.text : "";
           }
 
           if (eventName === "response_delta") {
             assistantText += typeof payload.text === "string" ? payload.text : "";
+          }
+
+          if (eventName === "done") {
+            finishReason = typeof payload.finishReason === "string" ? payload.finishReason : undefined;
           }
 
           if (eventName === "done" || eventName === "error") {
@@ -354,6 +444,10 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       if (streamBuffer.trim()) {
         const { eventName, payload } = parseEventBlock(streamBuffer);
 
+        if (eventSignalsExecutionStart(eventName, payload)) {
+          await ensureExecutionAccepted();
+        }
+
         if (eventName === "thinking_delta") {
           assistantThinking += typeof payload.text === "string" ? payload.text : "";
         }
@@ -362,12 +456,16 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
           assistantText += typeof payload.text === "string" ? payload.text : "";
         }
 
+        if (eventName === "done") {
+          finishReason = typeof payload.finishReason === "string" ? payload.finishReason : undefined;
+        }
+
         if (eventName === "done" || eventName === "error") {
           sawTerminalEvent = true;
         }
       }
 
-      if (sessionId && sawTerminalEvent) {
+      if (sessionId && sawTerminalEvent && shouldPersistAssistantResult(executionAccepted, finishReason, assistantText, assistantThinking)) {
         await persistAssistantResult(
           config,
           fetchImpl,
@@ -393,27 +491,13 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       }
 
       throw error;
-    } finally {
-      activeRequests.delete(requestId);
     }
   });
 
   app.post("/internal/chat/stop", async (request) => {
     const payload = (request.body ?? {}) as { requestId?: string };
     const requestId = payload.requestId ?? "";
-    const controller = activeRequests.get(requestId);
-
-    if (!controller) {
-      return {
-        stopped: false,
-        requestId
-      };
-    }
-
-    controller.abort();
-    activeRequests.delete(requestId);
-
-    await fetchImpl(`${config.ollamaAdapterUrl}/internal/provider/chat/stop`, {
+    const upstream = await fetchImpl(`${config.ollamaAdapterUrl}/internal/provider/chat/stop`, {
       method: "POST",
       headers: {
         "content-type": "application/json"
@@ -421,10 +505,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       body: JSON.stringify({ requestId })
     });
 
-    return {
-      stopped: true,
-      requestId
-    };
+    return upstream.json();
   });
 
   return app;

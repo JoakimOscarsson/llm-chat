@@ -8,6 +8,9 @@ import {
   modelWarmRequestSchema,
   modelWarmResponseSchema,
   modelsResponseSchema,
+  ollamaRuntimeSchema,
+  queuedChatRequestPatchSchema,
+  queuedChatRequestResponseSchema,
   sessionResponseSchema,
   sessionsResponseSchema
 } from "@llm-chat-app/contracts";
@@ -62,6 +65,28 @@ async function fetchDefaults(config: ApiGatewayConfig, fetchImpl: typeof fetch) 
   return appDefaultsResponseSchema.parse(await response.json());
 }
 
+async function fetchRuntime(config: ApiGatewayConfig, fetchImpl: typeof fetch) {
+  const response = await fetchImpl(`${config.chatServiceUrl}/internal/chat/runtime`);
+  return ollamaRuntimeSchema.parse(await response.json());
+}
+
+async function patchQueuedRequest(
+  config: ApiGatewayConfig,
+  fetchImpl: typeof fetch,
+  requestId: string,
+  payload: unknown
+) {
+  const response = await fetchImpl(`${config.chatServiceUrl}/internal/chat/requests/${requestId}`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(queuedChatRequestPatchSchema.parse(payload))
+  });
+
+  return queuedChatRequestResponseSchema.parse(await response.json());
+}
+
 async function fetchServiceStatus(url: string, fetchImpl: typeof fetch) {
   try {
     const response = await fetchImpl(`${url}/health`);
@@ -110,6 +135,8 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     version: "0.1.0",
     contractVersion: "v1"
   }));
+
+  app.get("/api/runtime/ollama", async () => fetchRuntime(config, fetchImpl));
 
   app.get("/api/models", async () => fetchModels(config, fetchImpl));
   app.post("/api/models/warm", async (request) => warmModel(config, fetchImpl, modelWarmRequestSchema.parse(request.body ?? {})));
@@ -198,7 +225,8 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       body: JSON.stringify(request.body ?? {})
     });
 
-    reply.header("content-type", "text/event-stream");
+    reply.code(upstream.status);
+    reply.header("content-type", upstream.headers.get("content-type") ?? "text/event-stream");
 
     if (!upstream.body) {
       const text = await upstream.text();
@@ -239,6 +267,11 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     });
 
     return upstream.json();
+  });
+
+  app.patch("/api/chat/requests/:requestId", async (request) => {
+    const requestId = (request.params as { requestId: string }).requestId;
+    return patchQueuedRequest(config, fetchImpl, requestId, request.body ?? {});
   });
 
   return app;
