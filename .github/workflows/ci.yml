@@ -28,3 +28,14 @@ jobs:
 
       - name: Run Docker static analysis
         run: npm run ci:docker:static-analysis
+
+  helm-packaging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Helm packaging validation
+        run: npm run ci:helm
