@@ -459,7 +459,7 @@ test("dismisses overlay sidebars on outside click and keeps docked rails beside 
   fireEvent.click(screen.getAllByRole("button", { name: /expand sessions sidebar/i })[0]!);
 
   await waitFor(() => {
-    expect(document.querySelector(".app-shell")?.className).toContain("left-docked");
+    expect(document.querySelector(".sidebar")?.className).toContain("docked open");
   });
   expect(screen.queryByRole("button", { name: /close sessions sidebar/i })).not.toBeInTheDocument();
 });

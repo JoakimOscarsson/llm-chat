@@ -1192,17 +1192,19 @@ export function App() {
     metrics?.status === "ok" || metrics?.status === "stale"
       ? `${metrics.gpu.usedMb.toFixed(0)} MB / ${metrics.gpu.totalMb.toFixed(0)} MB`
       : "Metrics unavailable";
+  const orderedSessions = [...sessions].sort((left, right) => {
+    const leftTimestamp = Date.parse(left.updatedAt);
+    const rightTimestamp = Date.parse(right.updatedAt);
+
+    if (Number.isNaN(leftTimestamp) || Number.isNaN(rightTimestamp)) {
+      return right.updatedAt.localeCompare(left.updatedAt);
+    }
+
+    return rightTimestamp - leftTimestamp;
+  });
 
   return (
-    <div
-      className={[
-        "app-shell",
-        leftSidebarOpen && leftSidebarMode === "docked" ? "left-docked" : "",
-        rightSidebarOpen && rightSidebarMode === "docked" ? "right-docked" : ""
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
+    <div className="app-shell">
       {leftSidebarOpen && leftSidebarMode === "overlay" ? (
         <button
           aria-label="Close sessions sidebar"
@@ -1228,7 +1230,7 @@ export function App() {
             New session
           </button>
           <ul className="session-list">
-            {sessions.map((session) => (
+            {orderedSessions.map((session) => (
               <li className="session-row" key={session.id}>
                 <button
                   aria-pressed={selectedSessionId === session.id}
