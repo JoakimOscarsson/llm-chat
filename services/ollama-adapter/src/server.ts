@@ -42,6 +42,23 @@ type UnsupportedOption = {
   message: string;
 };
 
+type SseReplyWriter = {
+  raw: {
+    write: (chunk: string) => unknown;
+  };
+};
+
+type ChatStreamResolution =
+  | {
+      ok: true;
+      upstream: Response;
+    }
+  | {
+      ok: false;
+      errorText: string;
+      status: number;
+    };
+
 function parseUpstreamErrorMessage(errorText: string) {
   const trimmed = errorText.trim();
 
@@ -203,6 +220,86 @@ function withoutUnsupportedOption(payload: ChatPayload, key: string): ChatPayloa
   return {
     ...payload,
     options: nextOptions
+  };
+}
+
+function writeSseEvent(reply: SseReplyWriter, event: string, data: Record<string, unknown>) {
+  reply.raw.write(`event: ${event}\n`);
+  reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+async function resolveChatStreamWithFallbacks(args: {
+  config: OllamaAdapterConfig;
+  fetchImpl: typeof fetch;
+  abortSignal: AbortSignal;
+  payload: ChatPayload;
+  requestId: string;
+  model: string;
+  reply: SseReplyWriter;
+}): Promise<ChatStreamResolution> {
+  let activePayload = args.payload;
+  let includeThink = args.payload.streamThinking ?? true;
+  const appliedFallbacks = new Set<string>();
+  const maxAttempts = 1 + Object.keys(args.payload.options ?? {}).length + (includeThink ? 1 : 0);
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const upstream = await fetchChatStream(
+      args.config,
+      args.fetchImpl,
+      args.abortSignal,
+      activePayload,
+      includeThink
+    );
+
+    if (upstream.ok && upstream.body) {
+      return {
+        ok: true,
+        upstream
+      };
+    }
+
+    const errorText = parseUpstreamErrorMessage(await upstream.text());
+
+    if (includeThink && thinkingUnsupported(errorText, upstream.status) && !appliedFallbacks.has("think")) {
+      includeThink = false;
+      appliedFallbacks.add("think");
+      writeSseEvent(args.reply, "thinking_unavailable", {
+        requestId: args.requestId,
+        model: args.model,
+        attempt: attempt + 1,
+        text: "This model does not support thinking. Streaming the answer without it."
+      });
+      continue;
+    }
+
+    const unsupportedOption = findUnsupportedOption(errorText, upstream.status);
+
+    if (unsupportedOption) {
+      const nextPayload = withoutUnsupportedOption(activePayload, unsupportedOption.key);
+
+      if (nextPayload !== activePayload && !appliedFallbacks.has(`option:${unsupportedOption.key}`)) {
+        activePayload = nextPayload;
+        appliedFallbacks.add(`option:${unsupportedOption.key}`);
+        writeSseEvent(args.reply, "settings_notice", {
+          option: unsupportedOption.key,
+          attempt: attempt + 1,
+          text: `This model does not support the ${unsupportedOption.key} setting. Retrying without it.`
+        });
+        continue;
+      }
+    }
+
+    return {
+      ok: false,
+      errorText,
+      status: upstream.status
+    };
+  }
+
+  return {
+    ok: false,
+    errorText: "Ollama upstream kept rejecting supported fallback settings.",
+    status: 502
   };
 }
 
@@ -484,8 +581,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     const model = payload.model ?? "llama3.1:8b";
 
     reply.header("content-type", "text/event-stream");
-    reply.raw.write("event: meta\n");
-    reply.raw.write(`data: ${JSON.stringify({ requestId, model })}\n\n`);
+    writeSseEvent(reply, "meta", { requestId, model });
 
     if (config.useStub) {
       reply.raw.write("event: thinking_delta\n");
@@ -508,109 +604,42 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     });
 
     try {
-      let activePayload = payload;
-      let upstream = await fetchChatStream(config, fetchImpl, abortController.signal, activePayload, true);
+      const streamResolution = await resolveChatStreamWithFallbacks({
+        config,
+        fetchImpl,
+        abortSignal: abortController.signal,
+        payload,
+        requestId,
+        model,
+        reply
+      });
 
-      if (!upstream.ok || !upstream.body) {
-        const errorText = parseUpstreamErrorMessage(await upstream.text());
-
-        if ((payload.streamThinking ?? true) && thinkingUnsupported(errorText, upstream.status)) {
-          reply.raw.write("event: thinking_unavailable\n");
-          reply.raw.write(
-            `data: ${JSON.stringify({
-              requestId,
-              model,
-              text: "This model does not support thinking. Streaming the answer without it."
-            })}\n\n`
-          );
-          upstream = await fetchChatStream(config, fetchImpl, abortController.signal, activePayload, false);
-        } else {
-          const unsupportedOption = findUnsupportedOption(errorText, upstream.status);
-
-          if (unsupportedOption) {
-            activePayload = withoutUnsupportedOption(activePayload, unsupportedOption.key);
-            reply.raw.write("event: settings_notice\n");
-            reply.raw.write(
-              `data: ${JSON.stringify({
-                option: unsupportedOption.key,
-                text: `This model does not support the ${unsupportedOption.key} setting. Retrying without it.`
-              })}\n\n`
-            );
-            upstream = await fetchChatStream(
-              config,
-              fetchImpl,
-              abortController.signal,
-              activePayload,
-              payload.streamThinking ?? true
-            );
-          } else {
-            reply.raw.write("event: error\n");
-            reply.raw.write(
-              `data: ${JSON.stringify({
-                requestId,
-                model,
-                message: errorText || `Ollama upstream returned ${upstream.status}`,
-                status: upstream.status
-              })}\n\n`
-            );
-            reply.raw.end();
-            return reply;
-          }
-        }
-      }
-
-      if (!upstream.ok || !upstream.body) {
-        const errorText = parseUpstreamErrorMessage(await upstream.text());
-
-        const unsupportedOption = findUnsupportedOption(errorText, upstream.status);
-
-        if (unsupportedOption) {
-          activePayload = withoutUnsupportedOption(activePayload, unsupportedOption.key);
-          reply.raw.write("event: settings_notice\n");
-          reply.raw.write(
-            `data: ${JSON.stringify({
-              option: unsupportedOption.key,
-              text: `This model does not support the ${unsupportedOption.key} setting. Retrying without it.`
-            })}\n\n`
-          );
-          upstream = await fetchChatStream(
-            config,
-            fetchImpl,
-            abortController.signal,
-            activePayload,
-            payload.streamThinking ?? true
-          );
-        } else {
-          reply.raw.write("event: error\n");
-          reply.raw.write(
-            `data: ${JSON.stringify({
-              requestId,
-              model,
-              message: errorText || `Ollama upstream returned ${upstream.status}`,
-              status: upstream.status
-            })}\n\n`
-          );
-          reply.raw.end();
-          return reply;
-        }
-      }
-
-      if (!upstream.ok || !upstream.body) {
-        const errorText = parseUpstreamErrorMessage(await upstream.text());
-        reply.raw.write("event: error\n");
-        reply.raw.write(
-          `data: ${JSON.stringify({
-            requestId,
-            model,
-            message: errorText || `Ollama upstream returned ${upstream.status}`,
-            status: upstream.status
-          })}\n\n`
-        );
+      if (!streamResolution.ok) {
+        writeSseEvent(reply, "error", {
+          requestId,
+          model,
+          message: streamResolution.errorText || `Ollama upstream returned ${streamResolution.status}`,
+          status: streamResolution.status
+        });
         reply.raw.end();
         return reply;
       }
 
-      const reader = upstream.body.getReader();
+      const upstream = streamResolution.upstream;
+      const upstreamBody = upstream.body;
+
+      if (!upstreamBody) {
+        writeSseEvent(reply, "error", {
+          requestId,
+          model,
+          message: "Ollama upstream did not provide a stream body.",
+          status: 502
+        });
+        reply.raw.end();
+        return reply;
+      }
+
+      const reader = upstreamBody.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
 
@@ -644,29 +673,23 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
           };
 
           if (chunk.message?.thinking) {
-            reply.raw.write("event: thinking_delta\n");
-            reply.raw.write(`data: ${JSON.stringify({ text: chunk.message.thinking })}\n\n`);
+            writeSseEvent(reply, "thinking_delta", { text: chunk.message.thinking });
           }
 
           if (chunk.message?.content) {
-            reply.raw.write("event: response_delta\n");
-            reply.raw.write(`data: ${JSON.stringify({ text: chunk.message.content })}\n\n`);
+            writeSseEvent(reply, "response_delta", { text: chunk.message.content });
           }
 
           if (chunk.done) {
-            reply.raw.write("event: usage\n");
-            reply.raw.write(
-              `data: ${JSON.stringify({
-                totalDuration: chunk.total_duration,
-                loadDuration: chunk.load_duration,
-                promptEvalCount: chunk.prompt_eval_count,
-                promptEvalDuration: chunk.prompt_eval_duration,
-                evalCount: chunk.eval_count,
-                evalDuration: chunk.eval_duration
-              })}\n\n`
-            );
-            reply.raw.write("event: done\n");
-            reply.raw.write(`data: ${JSON.stringify({ finishReason: chunk.done_reason ?? "stop" })}\n\n`);
+            writeSseEvent(reply, "usage", {
+              totalDuration: chunk.total_duration,
+              loadDuration: chunk.load_duration,
+              promptEvalCount: chunk.prompt_eval_count,
+              promptEvalDuration: chunk.prompt_eval_duration,
+              evalCount: chunk.eval_count,
+              evalDuration: chunk.eval_duration
+            });
+            writeSseEvent(reply, "done", { finishReason: chunk.done_reason ?? "stop" });
           }
         }
       }
@@ -686,29 +709,23 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
         };
 
         if (chunk.message?.thinking) {
-          reply.raw.write("event: thinking_delta\n");
-          reply.raw.write(`data: ${JSON.stringify({ text: chunk.message.thinking })}\n\n`);
+          writeSseEvent(reply, "thinking_delta", { text: chunk.message.thinking });
         }
 
         if (chunk.message?.content) {
-          reply.raw.write("event: response_delta\n");
-          reply.raw.write(`data: ${JSON.stringify({ text: chunk.message.content })}\n\n`);
+          writeSseEvent(reply, "response_delta", { text: chunk.message.content });
         }
 
         if (chunk.done) {
-          reply.raw.write("event: usage\n");
-          reply.raw.write(
-            `data: ${JSON.stringify({
-              totalDuration: chunk.total_duration,
-              loadDuration: chunk.load_duration,
-              promptEvalCount: chunk.prompt_eval_count,
-              promptEvalDuration: chunk.prompt_eval_duration,
-              evalCount: chunk.eval_count,
-              evalDuration: chunk.eval_duration
-            })}\n\n`
-          );
-          reply.raw.write("event: done\n");
-          reply.raw.write(`data: ${JSON.stringify({ finishReason: chunk.done_reason ?? "stop" })}\n\n`);
+          writeSseEvent(reply, "usage", {
+            totalDuration: chunk.total_duration,
+            loadDuration: chunk.load_duration,
+            promptEvalCount: chunk.prompt_eval_count,
+            promptEvalDuration: chunk.prompt_eval_duration,
+            evalCount: chunk.eval_count,
+            evalDuration: chunk.eval_duration
+          });
+          writeSseEvent(reply, "done", { finishReason: chunk.done_reason ?? "stop" });
         }
       }
 
