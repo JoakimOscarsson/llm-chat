@@ -107,6 +107,7 @@ test("POST /internal/provider/models/warm preloads a model through generate", as
   assert.match(forwardedBody, /"prompt":""/);
   assert.match(forwardedBody, /"stream":false/);
   assert.match(forwardedBody, /"keep_alive":-1/);
+  assert.equal(response.json().status, "warmed");
   assert.equal(response.json().ready, true);
   assert.equal(response.json().model, "qwen2.5-coder:7b");
   assert.equal(response.json().loadDuration, 125_000_000);

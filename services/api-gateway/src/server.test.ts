@@ -77,6 +77,7 @@ test("POST /api/models/warm proxies model warmup to the model service", async ()
 
       return new Response(
         JSON.stringify({
+          status: "warmed",
           ready: true,
           model: "qwen2.5-coder:7b",
           warmedAt: "2026-04-20T18:04:00Z",
@@ -103,6 +104,7 @@ test("POST /api/models/warm proxies model warmup to the model service", async ()
 
   assert.equal(response.statusCode, 200);
   assert.match(forwardedBody, /"keep_alive":-1/);
+  assert.equal(response.json().status, "warmed");
   assert.equal(response.json().ready, true);
 });
 

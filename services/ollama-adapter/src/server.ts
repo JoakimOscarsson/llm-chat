@@ -165,6 +165,7 @@ async function warmModel(
 ) {
   if (config.useStub) {
     return modelWarmResponseSchema.parse({
+      status: "warmed",
       ready: true,
       model: payload.model,
       warmedAt: new Date().toISOString(),
@@ -200,6 +201,7 @@ async function warmModel(
   };
 
   return modelWarmResponseSchema.parse({
+    status: "warmed",
     ready: true,
     model: responsePayload.model ?? payload.model,
     warmedAt: new Date().toISOString(),
