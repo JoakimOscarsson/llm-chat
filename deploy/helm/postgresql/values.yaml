@@ -1,0 +1,14 @@
+image:
+  repository: postgres
+  tag: 16-alpine
+  pullPolicy: IfNotPresent
+
+auth:
+  username: llm_chat
+  password: llm_chat
+  database: llm_chat
+
+persistence:
+  enabled: true
+  size: 4Gi
+  storageClassName: ""

@@ -87,6 +87,56 @@ This means each service should expose environment toggles for stub mode instead 
 - `CF_ACCESS_CLIENT_SECRET`
 - `OLLAMA_TIMEOUT_MS`
 - `OLLAMA_USE_STUB`
+- `REDIS_URL`
+- `OLLAMA_MAX_PARALLEL_REQUESTS`
+- `OLLAMA_QUEUE_PROMPT_AFTER_MS`
+- `OLLAMA_RUNTIME_STATUS_TTL_MS`
+- `POD_INSTANCE_ID`
+
+## Scalability Phase Additions
+
+### New Runtime Endpoint
+
+#### `GET /api/runtime/ollama`
+
+Response:
+
+```json
+{
+  "busy": true,
+  "activeRequests": 1,
+  "maxParallelRequests": 1,
+  "queueDepth": 2,
+  "residentModels": ["gemma4"],
+  "fastPathModels": ["gemma4"],
+  "fetchedAt": "2026-04-21T12:00:00.000Z"
+}
+```
+
+### Queued Request Mutation
+
+#### `PATCH /api/chat/requests/:requestId`
+
+Queued requests may be retargeted before they begin execution.
+
+Request:
+
+```json
+{
+  "model": "qwen2.5-coder:7b"
+}
+```
+
+### New SSE Events
+
+`POST /api/chat/stream` may now emit:
+
+- `queued`
+- `queue_update`
+- `queue_prompt`
+- `started`
+
+Canonical payloads are frozen in [docs/scalability-workstream-contracts.md](/Users/joakim/Documents/codex/llm-chat-app/docs/scalability-workstream-contracts.md:1).
 
 ## Shared Domain Types
 

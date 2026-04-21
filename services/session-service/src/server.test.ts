@@ -1,9 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createMemorySessionStore } from "./stores/memory.js";
 import { createApp } from "./server.js";
 
+function createMemoryApp() {
+  return createApp({
+    config: {
+      port: 0,
+      sessionStoreDriver: "memory",
+      sessionStoreUrl: ""
+    },
+    store: createMemorySessionStore()
+  });
+}
+
 test("GET /internal/sessions returns session summaries", async () => {
-  const app = createApp();
+  const app = createMemoryApp();
 
   const response = await app.inject({
     method: "GET",
@@ -22,7 +34,7 @@ test("GET /internal/sessions returns session summaries", async () => {
 });
 
 test("POST /internal/sessions creates a new empty session", async () => {
-  const app = createApp();
+  const app = createMemoryApp();
 
   const response = await app.inject({
     method: "POST",
@@ -40,7 +52,7 @@ test("POST /internal/sessions creates a new empty session", async () => {
 });
 
 test("GET /internal/settings/defaults returns app defaults", async () => {
-  const app = createApp();
+  const app = createMemoryApp();
 
   const response = await app.inject({
     method: "GET",
@@ -54,7 +66,7 @@ test("GET /internal/settings/defaults returns app defaults", async () => {
 });
 
 test("PUT /internal/settings/defaults updates app defaults", async () => {
-  const app = createApp();
+  const app = createMemoryApp();
 
   const response = await app.inject({
     method: "PUT",
@@ -86,7 +98,7 @@ test("PUT /internal/settings/defaults updates app defaults", async () => {
 });
 
 test("PATCH /internal/sessions/:sessionId updates overrides and context shaping", async () => {
-  const app = createApp();
+  const app = createMemoryApp();
 
   await app.inject({
     method: "POST",
@@ -176,7 +188,7 @@ test("PATCH /internal/sessions/:sessionId updates overrides and context shaping"
 });
 
 test("POST /internal/sessions/:sessionId/model-switch persists a marker and updates the active model", async () => {
-  const app = createApp();
+  const app = createMemoryApp();
 
   const response = await app.inject({
     method: "POST",
@@ -211,7 +223,7 @@ test("POST /internal/sessions/:sessionId/model-switch persists a marker and upda
 });
 
 test("POST /internal/sessions/:sessionId/messages and /assistant-result persist new turns into context history", async () => {
-  const app = createApp();
+  const app = createMemoryApp();
 
   const userResponse = await app.inject({
     method: "POST",
@@ -266,7 +278,7 @@ test("POST /internal/sessions/:sessionId/messages and /assistant-result persist 
 });
 
 test("DELETE /internal/sessions/:sessionId/history clears persisted conversation history", async () => {
-  const app = createApp();
+  const app = createMemoryApp();
 
   const response = await app.inject({
     method: "DELETE",

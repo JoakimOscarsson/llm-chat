@@ -1,0 +1,51 @@
+{{- if .Values.cloudflareTunnel.enabled }}
+{{- if and (not .Values.cloudflareTunnel.existingSecretName) (not .Values.cloudflareTunnel.token) }}
+{{- fail "cloudflareTunnel.token or cloudflareTunnel.existingSecretName must be set when Cloudflare Tunnel is enabled" }}
+{{- end }}
+{{- if and .Values.cloudflareTunnel.enabled (not .Values.cloudflareTunnel.existingSecretName) }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "llm-chat.cloudflareSecretName" . }}
+  labels:
+    {{- include "llm-chat.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  TUNNEL_TOKEN: {{ .Values.cloudflareTunnel.token | quote }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "llm-chat.fullname" . }}-cloudflare-tunnel
+  labels:
+    {{- include "llm-chat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cloudflare-tunnel
+spec:
+  replicas: {{ .Values.cloudflareTunnel.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: cloudflare-tunnel
+  template:
+    metadata:
+      labels:
+        {{- include "llm-chat.labels" . | nindent 8 }}
+        app.kubernetes.io/component: cloudflare-tunnel
+    spec:
+      containers:
+        - name: cloudflared
+          image: {{ .Values.cloudflareTunnel.image }}
+          args:
+            - tunnel
+            - --no-autoupdate
+            - run
+            - --token
+            - $(TUNNEL_TOKEN)
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "llm-chat.cloudflareSecretName" . }}
+                  key: TUNNEL_TOKEN
+{{- end }}

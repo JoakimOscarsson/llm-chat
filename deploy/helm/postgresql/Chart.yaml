@@ -1,0 +1,6 @@
+apiVersion: v2
+name: postgresql
+description: Minimal PostgreSQL dependency chart for local in-cluster persistence.
+type: application
+version: 0.1.0
+appVersion: "16"

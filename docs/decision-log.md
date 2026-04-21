@@ -135,6 +135,30 @@ Adopt a microservice-first monorepo layout from the beginning.
 Reason:
 This supports future agentic workflows, cleaner service ownership, easier repo splits later, and contract-first implementation.
 
+### 8. Kubernetes Packaging
+
+Decision:
+Use a top-level Helm chart with in-cluster Postgres and Redis.
+
+Reason:
+This keeps deployment configuration reusable, environment-driven, and aligned with the new horizontal scaling model.
+
+### 9. Ollama Parallelism Limit
+
+Decision:
+Enforce a cluster-wide concurrency limit above Ollama using Redis-backed queue coordination.
+
+Reason:
+The upstream backend is VRAM-constrained, so scaling app pods must not translate into unconstrained parallel model execution.
+
+### 10. Warmup Semantics Under Load
+
+Decision:
+Warmup is idle-only and must be skipped when any request is active or queued.
+
+Reason:
+Standalone warmup requests during queue pressure would churn model residency and waste scarce GPU capacity.
+
 ## Additional Features I Recommend Discussing
 
 - Regenerate reply

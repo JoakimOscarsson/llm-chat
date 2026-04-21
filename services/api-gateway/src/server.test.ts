@@ -2,6 +2,54 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createApp } from "./server.js";
 
+test("GET /api/runtime/ollama proxies runtime status through chat-service", async () => {
+  const app = createApp({
+    config: {
+      port: 4000,
+      chatServiceUrl: "http://chat-service:4001",
+      modelServiceUrl: "http://model-service:4002",
+      sessionServiceUrl: "http://session-service:4003",
+      metricsServiceUrl: "http://metrics-service:4004"
+    },
+    fetchImpl: async (input) => {
+      assert.equal(String(input), "http://chat-service:4001/internal/chat/runtime");
+
+      return new Response(
+        JSON.stringify({
+          busy: true,
+          activeRequests: 1,
+          maxParallelRequests: 1,
+          queueDepth: 2,
+          residentModels: ["gemma4"],
+          fastPathModels: ["gemma4"],
+          fetchedAt: "2026-04-21T12:00:00.000Z"
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/runtime/ollama"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), {
+    busy: true,
+    activeRequests: 1,
+    maxParallelRequests: 1,
+    queueDepth: 2,
+    residentModels: ["gemma4"],
+    fastPathModels: ["gemma4"],
+    fetchedAt: "2026-04-21T12:00:00.000Z"
+  });
+});
+
 test("GET /api/models proxies the model service response", async () => {
   const app = createApp({
     config: {
@@ -77,6 +125,7 @@ test("POST /api/models/warm proxies model warmup to the model service", async ()
 
       return new Response(
         JSON.stringify({
+          status: "warmed",
           ready: true,
           model: "qwen2.5-coder:7b",
           warmedAt: "2026-04-20T18:04:00Z",
@@ -103,6 +152,7 @@ test("POST /api/models/warm proxies model warmup to the model service", async ()
 
   assert.equal(response.statusCode, 200);
   assert.match(forwardedBody, /"keep_alive":-1/);
+  assert.equal(response.json().status, "warmed");
   assert.equal(response.json().ready, true);
 });
 
@@ -602,6 +652,18 @@ test("GET /api/metrics/gpu proxies the metrics service response", async () => {
 
 test("POST /api/chat/stream relays chat-service stream events", async () => {
   const streamBody = [
+    "event: queued",
+    'data: {"requestId":"req_1","position":2,"queueDepth":2,"model":"llama3.1:8b","promptAfterMs":12000}',
+    "",
+    "event: queue_update",
+    'data: {"requestId":"req_1","position":1,"queueDepth":1}',
+    "",
+    "event: queue_prompt",
+    'data: {"requestId":"req_1","position":1,"waitedMs":12034}',
+    "",
+    "event: started",
+    'data: {"requestId":"req_1","model":"llama3.1:8b","startedAt":"2026-04-21T12:00:15.000Z"}',
+    "",
     "event: meta",
     'data: {"requestId":"req_1","model":"llama3.1:8b"}',
     "",
@@ -650,8 +712,61 @@ test("POST /api/chat/stream relays chat-service stream events", async () => {
   });
 
   assert.equal(response.statusCode, 200);
+  assert.match(response.body, /event: queued/);
+  assert.match(response.body, /event: queue_update/);
+  assert.match(response.body, /event: queue_prompt/);
+  assert.match(response.body, /event: started/);
   assert.match(response.body, /event: thinking_delta/);
   assert.match(response.body, /event: response_delta/);
+});
+
+test("PATCH /api/chat/requests/:requestId proxies queued request updates", async () => {
+  let forwardedBody = "";
+
+  const app = createApp({
+    config: {
+      port: 4000,
+      chatServiceUrl: "http://chat-service:4001",
+      modelServiceUrl: "http://model-service:4002",
+      sessionServiceUrl: "http://session-service:4003",
+      metricsServiceUrl: "http://metrics-service:4004"
+    },
+    fetchImpl: async (input, init) => {
+      assert.equal(String(input), "http://chat-service:4001/internal/chat/requests/req_123");
+      assert.equal(init?.method, "PATCH");
+      forwardedBody = String(init?.body ?? "");
+
+      return new Response(
+        JSON.stringify({
+          request: {
+            requestId: "req_123",
+            state: "queued",
+            model: "qwen2.5-coder:7b",
+            position: 2,
+            queueDepth: 2,
+            queuedAt: "2026-04-21T12:00:03.000Z"
+          }
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+  });
+
+  const response = await app.inject({
+    method: "PATCH",
+    url: "/api/chat/requests/req_123",
+    payload: {
+      model: "qwen2.5-coder:7b"
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(forwardedBody, /"model":"qwen2.5-coder:7b"/);
+  assert.equal(response.json().request.requestId, "req_123");
 });
 
 test("POST /api/chat/stop proxies the stop request to the chat service", async () => {

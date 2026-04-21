@@ -6,6 +6,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "ci:docker": "npm run ci:docker:validate && npm run ci:docker:static-analysis",
+    "ci:helm": "sh deploy/helm/validate.sh",
     "ci:docker:validate": "docker build -f docker/ci.Dockerfile --target validate -t llm-chat-ci:validate .",
     "ci:docker:static-analysis": "docker build -f docker/ci.Dockerfile --target static-analysis -t llm-chat-ci:static-analysis .",
     "dev": "pnpm --filter @llm-chat-app/web dev",

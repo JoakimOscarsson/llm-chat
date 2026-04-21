@@ -3,3 +3,6 @@ set -eu
 
 echo "Running Docker CI validation before push..."
 npm run ci:docker
+
+echo "Running Helm packaging validation before push..."
+npm run ci:helm

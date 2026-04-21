@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApp } from "./server.js";
+import { InMemoryQueueCoordinator } from "./coordination.js";
+import { createDeferred, waitFor } from "./test-helpers.js";
 
 test("GET /internal/provider/models returns stub models when stub mode is enabled", async () => {
   const app = createApp({
@@ -314,4 +316,152 @@ test("POST /internal/provider/chat/title ignores malformed json-ish title output
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().title, "Make me some ascii art");
+});
+
+test("GET /internal/provider/runtime reports resident and fast-path models", async () => {
+  const coordinator = new InMemoryQueueCoordinator({
+    maxParallelRequests: 2
+  });
+
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false,
+      redisUrl: "",
+      maxParallelRequests: 2,
+      queuePromptAfterMs: 12_000,
+      runtimeStatusTtlMs: 60_000,
+      podInstanceId: "pod-runtime"
+    },
+    coordinationStore: coordinator,
+    fetchImpl: async (input) => {
+      assert.equal(String(input), "https://example-ollama.test/api/ps");
+
+      return new Response(
+        JSON.stringify({
+          models: [
+            {
+              name: "gemma4"
+            },
+            {
+              name: "qwen2.5-coder:7b"
+            }
+          ]
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/internal/provider/runtime"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), {
+    busy: false,
+    activeRequests: 0,
+    maxParallelRequests: 2,
+    queueDepth: 0,
+    residentModels: ["gemma4", "qwen2.5-coder:7b"],
+    fastPathModels: ["gemma4", "qwen2.5-coder:7b"],
+    fetchedAt: response.json().fetchedAt
+  });
+});
+
+test("POST /internal/provider/models/warm skips when requests are already running", async () => {
+  const coordinator = new InMemoryQueueCoordinator({
+    maxParallelRequests: 1
+  });
+  const release = createDeferred<void>();
+  let chatCalls = 0;
+
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false,
+      redisUrl: "",
+      maxParallelRequests: 1,
+      queuePromptAfterMs: 12_000,
+      runtimeStatusTtlMs: 0,
+      podInstanceId: "pod-warm-busy"
+    },
+    coordinationStore: coordinator,
+    fetchImpl: async (input, init) => {
+      if (String(input) === "https://example-ollama.test/api/ps") {
+        return new Response(JSON.stringify({ models: [] }), {
+          headers: {
+            "content-type": "application/json"
+          }
+        });
+      }
+
+      if (String(input) === "https://example-ollama.test/api/chat") {
+        chatCalls += 1;
+
+        const stream = new ReadableStream({
+          async start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode(
+                `${JSON.stringify({ message: { content: "Working..." }, done: false })}\n`
+              )
+            );
+            await release.promise;
+            controller.enqueue(
+              new TextEncoder().encode(`${JSON.stringify({ done: true, done_reason: "stop" })}\n`)
+            );
+            controller.close();
+          }
+        });
+
+        return new Response(stream, {
+          headers: {
+            "content-type": "application/x-ndjson"
+          }
+        });
+      }
+
+      throw new Error(`Unhandled request ${String(input)} with method ${String(init?.method ?? "GET")}`);
+    }
+  });
+
+  const streamPromise = app.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_busy",
+      model: "gemma4",
+      messages: [{ role: "user", content: "Hello" }]
+    }
+  });
+
+  await waitFor(() => chatCalls === 1);
+
+  const warmResponse = await app.inject({
+    method: "POST",
+    url: "/internal/provider/models/warm",
+    payload: {
+      model: "qwen2.5-coder:7b"
+    }
+  });
+
+  assert.equal(warmResponse.statusCode, 200);
+  assert.equal(warmResponse.json().status, "skipped_busy");
+  assert.equal(warmResponse.json().ready, false);
+
+  release.resolve();
+  await streamPromise;
 });

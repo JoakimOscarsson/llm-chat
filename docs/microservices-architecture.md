@@ -64,6 +64,19 @@ The project should be structured so that each meaningful capability can be imple
 - Internal streaming: SSE between `api-gateway` -> `chat-service` and `chat-service` -> `ollama-adapter`.
 - No broker required in V1.
 
+## Scalability Phase Architecture
+
+- Durable application state moves to Postgres.
+- Distributed coordination moves to Redis.
+- `session-service` becomes stateless application logic over Postgres.
+- `ollama-adapter` remains the provider boundary and adds:
+  - Redis-backed FIFO queue
+  - cluster-wide slot limiter
+  - request ownership and cancel signaling
+  - runtime status from Ollama `GET /api/ps`
+- Kubernetes packaging uses a top-level Helm chart with in-cluster Postgres and Redis dependencies.
+- Local `docker compose` remains supported with one container per service plus local Postgres and Redis.
+
 ## Service Independence Rules
 
 Every service should have:

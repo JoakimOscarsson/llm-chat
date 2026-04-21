@@ -143,6 +143,7 @@ test("POST /internal/models/warm proxies model warmup to the provider adapter", 
 
       return new Response(
         JSON.stringify({
+          status: "warmed",
           ready: true,
           model: "qwen2.5-coder:7b",
           warmedAt: "2026-04-20T18:04:00Z",
@@ -169,6 +170,7 @@ test("POST /internal/models/warm proxies model warmup to the provider adapter", 
 
   assert.equal(response.statusCode, 200);
   assert.match(forwardedBody, /"model":"qwen2.5-coder:7b"/);
+  assert.equal(response.json().status, "warmed");
   assert.equal(response.json().ready, true);
   assert.equal(response.json().model, "qwen2.5-coder:7b");
 });

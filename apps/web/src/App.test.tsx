@@ -33,6 +33,7 @@ function setWindowWidth(width: number) {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   setWindowWidth(originalInnerWidth);
 });
 
@@ -196,12 +197,12 @@ test("renders discovered models from the gateway", async () => {
   fireEvent.click(screen.getAllByRole("button", { name: /models/i })[0]!);
 
   await waitFor(() => {
-    expect(screen.getByRole("combobox", { name: /model selector/i })).toHaveValue("llama3.1:8b");
+    expect(screen.getByRole("option", { name: /llama3.1:8b/i })).toHaveAttribute("aria-selected", "true");
   });
 
   fireEvent.click(screen.getAllByRole("button", { name: /expand sessions sidebar/i })[0]!);
-  expect(screen.getByRole("option", { name: "llama3.1:8b" })).toBeInTheDocument();
-  expect(screen.getByRole("option", { name: "qwen2.5:7b" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: /llama3.1:8b/i })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: /qwen2.5:7b/i })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /troubleshooting nginx config/i })).toBeInTheDocument();
   fireEvent.click(screen.getAllByRole("button", { name: /expand settings sidebar/i })[0]!);
   expect(screen.getAllByText("Gateway ready").length).toBeGreaterThan(0);
@@ -209,9 +210,7 @@ test("renders discovered models from the gateway", async () => {
   expect(screen.getByText("Start a new conversation when you’re ready.")).toBeInTheDocument();
   expect(screen.queryByText("How should this chat app be structured?")).not.toBeInTheDocument();
 
-  fireEvent.change(screen.getByRole("combobox", { name: /model selector/i }), {
-    target: { value: "qwen2.5:7b" }
-  });
+  fireEvent.click(screen.getByRole("option", { name: /qwen2.5:7b/i }));
 
   await waitFor(() => {
     expect(screen.getAllByRole("button", { name: /models/i })[0]).toHaveAttribute("aria-expanded", "false");
@@ -358,10 +357,7 @@ test("disables the composer while a model switch is warming", async () => {
   render(<App />);
 
   fireEvent.click(screen.getAllByRole("button", { name: /models/i })[0]!);
-  const selector = await screen.findByRole("combobox", { name: /model selector/i });
-  fireEvent.change(selector, {
-    target: { value: "qwen2.5:7b" }
-  });
+  fireEvent.click(await screen.findByRole("option", { name: /qwen2.5:7b/i }));
 
   await waitFor(() => {
     expect(screen.getByRole("textbox", { name: /prompt/i })).toBeDisabled();
@@ -800,9 +796,7 @@ test("loads and saves app defaults and session overrides", async () => {
   });
 
   fireEvent.click(screen.getAllByRole("button", { name: /models/i })[0]!);
-  fireEvent.change(screen.getByRole("combobox", { name: /model selector/i }), {
-    target: { value: "llama3.1:8b" }
-  });
+  fireEvent.click(screen.getByRole("option", { name: /llama3.1:8b/i }));
   fireEvent.click(screen.getByText("Session overrides"));
   fireEvent.change(screen.getByLabelText("System prompt override"), {
     target: { value: "Focus on code." }
@@ -1782,12 +1776,11 @@ test("uses the currently selected model and surfaces stream errors", async () =>
   render(<App />);
 
   await waitFor(() => {
-    expect(screen.getByRole("combobox", { name: /model selector/i })).toHaveValue("gemma4:12b");
+    expect(screen.getByRole("option", { name: /gemma4:12b/i })).toHaveAttribute("aria-selected", "true");
   });
 
-  fireEvent.change(screen.getByRole("combobox", { name: /model selector/i }), {
-    target: { value: "qwen2.5-coder:7b" }
-  });
+  fireEvent.click(screen.getAllByRole("button", { name: /models/i })[0]!);
+  fireEvent.click(screen.getByRole("option", { name: /qwen2.5-coder:7b/i }));
 
   await waitFor(() => {
     expect(screen.getByText("qwen2.5-coder:7b ready")).toBeInTheDocument();
@@ -2269,4 +2262,585 @@ test("stops an in-flight stream and sends a stop request", async () => {
   });
 
   expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+});
+
+test("shows queued status updates and a delayed keep-waiting prompt", async () => {
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [
+            { name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 },
+            { name: "qwen2.5-coder:7b", modifiedAt: "2026-04-20T18:01:00Z", size: 456 }
+          ],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/runtime/ollama")) {
+      return new Response(
+        JSON.stringify({
+          busy: true,
+          activeRequests: 1,
+          maxParallelRequests: 1,
+          queueDepth: 1,
+          residentModels: ["llama3.1:8b"],
+          fastPathModels: ["llama3.1:8b"],
+          fetchedAt: "2026-04-20T18:02:30.000Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          status: "already_resident",
+          model: "llama3.1:8b",
+          ready: true
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return new Response(
+        JSON.stringify({
+          sessions: [{ id: "sess_1", title: "Queued chat", model: "llama3.1:8b", updatedAt: "2026-04-20T18:03:00Z" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1")) {
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "Queued chat",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:03:00.000Z",
+            messages: [],
+            overrides: {}
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/chat/stream")) {
+      expect(init?.method).toBe("POST");
+
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            streamController = controller;
+          }
+        }),
+        {
+          headers: {
+            "content-type": "text/event-stream"
+          }
+        }
+      );
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  fireEvent.change(await screen.findByPlaceholderText("Send a message to the model..."), {
+    target: { value: "Queue me" }
+  });
+  fireEvent.submit(screen.getByRole("button", { name: "Send" }).closest("form")!);
+
+  if (!streamController) {
+    throw new Error("stream controller was not initialized");
+  }
+
+  const encoder = new TextEncoder();
+  const controller = streamController as unknown as { enqueue(chunk: Uint8Array): void };
+  controller.enqueue(
+    encoder.encode('event: queued\ndata: {"requestId":"req_queued","position":2,"queueDepth":2,"model":"llama3.1:8b","promptAfterMs":12000}\n\n')
+  );
+
+  await waitFor(() => {
+    expect(screen.getAllByText(/Queued at position 2 of 2/i).length).toBeGreaterThan(0);
+  });
+  expect(screen.queryByRole("button", { name: /keep waiting/i })).not.toBeInTheDocument();
+
+  setTimeout(() => {
+    controller.enqueue(encoder.encode('event: queue_prompt\ndata: {"requestId":"req_queued","position":2,"waitedMs":12034}\n\n'));
+  }, 25);
+
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: /keep waiting/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /leave queue/i }).length).toBeGreaterThan(0);
+  });
+});
+
+test("retargets a queued request when the user switches models", async () => {
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+  const patchBodies: string[] = [];
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [
+            { name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 },
+            { name: "qwen2.5-coder:7b", modifiedAt: "2026-04-20T18:01:00Z", size: 456 }
+          ],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/runtime/ollama")) {
+      return new Response(
+        JSON.stringify({
+          busy: true,
+          activeRequests: 1,
+          maxParallelRequests: 1,
+          queueDepth: 1,
+          residentModels: ["llama3.1:8b"],
+          fastPathModels: ["llama3.1:8b"],
+          fetchedAt: "2026-04-20T18:02:30.000Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          status: "already_resident",
+          model: "llama3.1:8b",
+          ready: true
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return new Response(
+        JSON.stringify({
+          sessions: [{ id: "sess_1", title: "Queued chat", model: "llama3.1:8b", updatedAt: "2026-04-20T18:03:00Z" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1")) {
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "Queued chat",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:03:00.000Z",
+            messages: [],
+            overrides: {}
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/chat/stream")) {
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            streamController = controller;
+          }
+        }),
+        {
+          headers: {
+            "content-type": "text/event-stream"
+          }
+        }
+      );
+    }
+
+    if (url.includes("/api/chat/requests/req_queued")) {
+      patchBodies.push(String(init?.body ?? ""));
+
+      return new Response(
+        JSON.stringify({
+          request: {
+            requestId: "req_queued",
+            state: "queued",
+            model: "qwen2.5-coder:7b",
+            position: 1,
+            queueDepth: 1,
+            queuedAt: "2026-04-20T18:05:00.000Z"
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  fireEvent.change(await screen.findByPlaceholderText("Send a message to the model..."), {
+    target: { value: "Queue and switch" }
+  });
+  fireEvent.submit(screen.getByRole("button", { name: "Send" }).closest("form")!);
+
+  if (!streamController) {
+    throw new Error("stream controller was not initialized");
+  }
+
+  const controller = streamController as unknown as { enqueue(chunk: Uint8Array): void };
+  controller.enqueue(
+    new TextEncoder().encode(
+      'event: queued\ndata: {"requestId":"req_queued","position":2,"queueDepth":2,"model":"llama3.1:8b","promptAfterMs":12000}\n\n'
+    )
+  );
+
+  await waitFor(() => {
+    expect(screen.getAllByText(/Queued at position 2 of 2/i).length).toBeGreaterThan(0);
+  });
+
+  fireEvent.click(screen.getAllByRole("button", { name: /models/i })[0]!);
+  fireEvent.click(screen.getByRole("option", { name: /qwen2.5-coder:7b/i }));
+
+  await waitFor(() => {
+    expect(patchBodies).toHaveLength(1);
+  });
+  expect(patchBodies[0]).toContain('"model":"qwen2.5-coder:7b"');
+  expect(screen.getByText("Queued request updated to qwen2.5-coder:7b.")).toBeInTheDocument();
+});
+
+test("cancels a queued request from the delayed queue prompt", async () => {
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+  let stopRequested = false;
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [{ name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 }],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/runtime/ollama")) {
+      return new Response(
+        JSON.stringify({
+          busy: true,
+          activeRequests: 1,
+          maxParallelRequests: 1,
+          queueDepth: 1,
+          residentModels: ["llama3.1:8b"],
+          fastPathModels: ["llama3.1:8b"],
+          fetchedAt: "2026-04-20T18:02:30.000Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          status: "already_resident",
+          model: "llama3.1:8b",
+          ready: true
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return new Response(
+        JSON.stringify({
+          sessions: [{ id: "sess_1", title: "Queued chat", model: "llama3.1:8b", updatedAt: "2026-04-20T18:03:00Z" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1")) {
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "Queued chat",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:03:00.000Z",
+            messages: [],
+            overrides: {}
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/chat/stream")) {
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            streamController = controller;
+          }
+        }),
+        {
+          headers: {
+            "content-type": "text/event-stream"
+          }
+        }
+      );
+    }
+
+    if (url.endsWith("/api/chat/stop")) {
+      stopRequested = true;
+      return new Response(JSON.stringify({ stopped: true }), {
+        headers: {
+          "content-type": "application/json"
+        }
+      });
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  fireEvent.change(await screen.findByPlaceholderText("Send a message to the model..."), {
+    target: { value: "Queue then cancel" }
+  });
+  fireEvent.submit(screen.getByRole("button", { name: "Send" }).closest("form")!);
+
+  if (!streamController) {
+    throw new Error("stream controller was not initialized");
+  }
+
+  const encoder = new TextEncoder();
+  const controller = streamController as unknown as { enqueue(chunk: Uint8Array): void };
+  controller.enqueue(
+    encoder.encode('event: queued\ndata: {"requestId":"req_queued","position":1,"queueDepth":1,"model":"llama3.1:8b","promptAfterMs":12000}\n\n')
+  );
+
+  setTimeout(() => {
+    controller.enqueue(encoder.encode('event: queue_prompt\ndata: {"requestId":"req_queued","position":1,"waitedMs":12034}\n\n'));
+  }, 25);
+
+  await waitFor(() => {
+    expect(screen.getAllByRole("button", { name: /leave queue/i }).length).toBeGreaterThan(0);
+  });
+
+  fireEvent.click(screen.getAllByRole("button", { name: /leave queue/i })[0]!);
+
+  await waitFor(() => {
+    expect(stopRequested).toBe(true);
+  });
+  await waitFor(() => {
+    expect(screen.getByText("Queued request cancelled.")).toBeInTheDocument();
+  });
+});
+
+test("highlights fast-path models and stays usable when runtime data is unavailable", async () => {
+  const runtimeRequests: string[] = [];
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [
+            { name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 },
+            { name: "qwen2.5-coder:7b", modifiedAt: "2026-04-20T18:01:00Z", size: 456 }
+          ],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/runtime/ollama")) {
+      runtimeRequests.push(url);
+
+      if (runtimeRequests.length === 1) {
+        return new Response(
+          JSON.stringify({
+            busy: false,
+            activeRequests: 0,
+            maxParallelRequests: 1,
+            queueDepth: 0,
+            residentModels: ["llama3.1:8b"],
+            fastPathModels: ["llama3.1:8b"],
+            fetchedAt: "2026-04-20T18:02:30.000Z"
+          }),
+          { headers: { "content-type": "application/json" } }
+        );
+      }
+
+      throw new Error("runtime unavailable");
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          status: "already_resident",
+          model: "llama3.1:8b",
+          ready: true
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return new Response(
+        JSON.stringify({
+          sessions: [{ id: "sess_1", title: "Runtime chat", model: "llama3.1:8b", updatedAt: "2026-04-20T18:03:00Z" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1")) {
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "Runtime chat",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:03:00.000Z",
+            messages: [],
+            overrides: {}
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  fireEvent.click((await screen.findAllByRole("button", { name: /models/i }))[0]!);
+
+  await waitFor(() => {
+    expect(screen.getByText("Fast path")).toBeInTheDocument();
+  });
+  expect(screen.getByRole("option", { name: /llama3.1:8b/i })).toBeInTheDocument();
+  expect(screen.getAllByText(/Fast path: llama3.1:8b/i).length).toBeGreaterThan(0);
+
+  fireEvent.pointerDown(document.body);
+  fireEvent.click(screen.getAllByRole("button", { name: /models/i })[0]!);
+  fireEvent.click(screen.getByRole("button", { name: /refresh models/i }));
+
+  await waitFor(() => {
+    expect(screen.getAllByText("Runtime data unavailable").length).toBeGreaterThan(0);
+  });
 });
