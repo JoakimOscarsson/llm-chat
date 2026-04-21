@@ -212,6 +212,7 @@ test("GET /internal/provider/models enriches tags with capabilities from show", 
       modifiedAt: "2026-04-20T18:00:00Z",
       size: 123,
       chatCapable: true,
+      capabilitySource: "show",
       capabilities: ["completion"],
       family: "llama",
       families: ["llama"]
@@ -221,7 +222,9 @@ test("GET /internal/provider/models enriches tags with capabilities from show", 
       modifiedAt: "2026-04-20T18:01:00Z",
       size: 456,
       chatCapable: false,
+      capabilitySource: "show",
       capabilities: ["embedding"],
+      exclusionReason: "embedding",
       family: "embeddinggemma",
       families: ["embeddinggemma"]
     }

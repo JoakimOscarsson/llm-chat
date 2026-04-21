@@ -22,6 +22,7 @@ test("GET /api/models proxies the model service response", async () => {
               modifiedAt: "2026-04-20T18:00:00Z",
               size: 123,
               chatCapable: true,
+              capabilitySource: "show",
               capabilities: ["completion"],
               family: "llama",
               families: ["llama"]
@@ -50,6 +51,7 @@ test("GET /api/models proxies the model service response", async () => {
       modifiedAt: "2026-04-20T18:00:00Z",
       size: 123,
       chatCapable: true,
+      capabilitySource: "show",
       capabilities: ["completion"],
       family: "llama",
       families: ["llama"]

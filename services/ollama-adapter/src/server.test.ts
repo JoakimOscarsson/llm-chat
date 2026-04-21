@@ -26,6 +26,7 @@ test("GET /internal/provider/models returns stub models when stub mode is enable
       modifiedAt: "2026-04-20T18:00:00.000Z",
       size: 4661224676,
       chatCapable: true,
+      capabilitySource: "stub",
       capabilities: ["completion"],
       family: "llama",
       families: ["llama"]
@@ -103,9 +104,75 @@ test("GET /internal/provider/models forwards Cloudflare headers and normalizes t
       modifiedAt: "2026-04-20T18:00:00Z",
       size: 123,
       chatCapable: true,
+      capabilitySource: "show",
       capabilities: ["completion"],
       family: "llama",
       families: ["llama"]
+    }
+  ]);
+});
+
+test("GET /internal/provider/models marks ambiguous models as non-chat when show metadata is unavailable", async () => {
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false
+    },
+    fetchImpl: async (input, init) => {
+      if (String(input) === "https://example-ollama.test/api/tags") {
+        return new Response(
+          JSON.stringify({
+            models: [
+              {
+                name: "qwen2.5-coder:7b",
+                modified_at: "2026-04-20T18:00:00Z",
+                size: 123
+              }
+            ]
+          }),
+          {
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        );
+      }
+
+      if (String(input) === "https://example-ollama.test/api/show") {
+        assert.equal(init?.method, "POST");
+
+        return new Response("show unavailable", {
+          status: 503,
+          headers: {
+            "content-type": "text/plain"
+          }
+        });
+      }
+
+      throw new Error(`Unhandled fetch for ${String(input)}`);
+    }
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/internal/provider/models"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json().models, [
+    {
+      name: "qwen2.5-coder:7b",
+      modifiedAt: "2026-04-20T18:00:00Z",
+      size: 123,
+      chatCapable: false,
+      capabilitySource: "unknown",
+      capabilities: [],
+      exclusionReason: "missing_capability_metadata",
+      families: []
     }
   ]);
 });
