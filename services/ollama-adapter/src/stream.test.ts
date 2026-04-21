@@ -557,3 +557,134 @@ test("POST /internal/provider/chat/stream retries without unsupported options", 
   assert.match(response.body, /Recovered response/);
   assert.doesNotMatch(response.body, /event: error/);
 });
+
+test("POST /internal/provider/chat/stream retries through multiple unsupported options", async () => {
+  const upstreamBody = [
+    JSON.stringify({
+      model: "llama3.1:8b",
+      message: {
+        role: "assistant",
+        content: "Recovered after multiple downgrades."
+      },
+      done: false
+    }),
+    JSON.stringify({
+      model: "llama3.1:8b",
+      done: true,
+      done_reason: "stop"
+    })
+  ].join("\n");
+  const requestBodies: string[] = [];
+
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false
+    },
+    fetchImpl: async (_input, init) => {
+      requestBodies.push(String(init?.body ?? ""));
+
+      if (requestBodies.length === 1) {
+        return new Response(JSON.stringify({ error: "unsupported option: top_k" }), {
+          status: 400,
+          headers: {
+            "content-type": "application/json"
+          }
+        });
+      }
+
+      if (requestBodies.length === 2) {
+        return new Response(JSON.stringify({ error: "unsupported option: num_ctx" }), {
+          status: 400,
+          headers: {
+            "content-type": "application/json"
+          }
+        });
+      }
+
+      return new Response(upstreamBody, {
+        headers: {
+          "content-type": "application/x-ndjson"
+        }
+      });
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_option_retry_chain",
+      model: "llama3.1:8b",
+      messages: [{ role: "user", content: "Hello" }],
+      options: {
+        temperature: 0.7,
+        top_k: 40,
+        num_ctx: 4096
+      }
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(requestBodies.length, 3);
+  assert.match(requestBodies[0] ?? "", /"top_k":40/);
+  assert.match(requestBodies[0] ?? "", /"num_ctx":4096/);
+  assert.doesNotMatch(requestBodies[1] ?? "", /"top_k":40/);
+  assert.match(requestBodies[1] ?? "", /"num_ctx":4096/);
+  assert.doesNotMatch(requestBodies[2] ?? "", /"top_k":40/);
+  assert.doesNotMatch(requestBodies[2] ?? "", /"num_ctx":4096/);
+  assert.match(response.body, /event: settings_notice/);
+  assert.match(response.body, /top_k/);
+  assert.match(response.body, /num_ctx/);
+  assert.match(response.body, /Recovered after multiple downgrades/);
+  assert.doesNotMatch(response.body, /event: error/);
+});
+
+test("POST /internal/provider/chat/stream fails cleanly when unsupported-option retries stop making progress", async () => {
+  const requestBodies: string[] = [];
+
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false
+    },
+    fetchImpl: async (_input, init) => {
+      requestBodies.push(String(init?.body ?? ""));
+
+      return new Response(JSON.stringify({ error: "unsupported option: top_k" }), {
+        status: 400,
+        headers: {
+          "content-type": "application/json"
+        }
+      });
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_option_retry_stall",
+      model: "llama3.1:8b",
+      messages: [{ role: "user", content: "Hello" }],
+      options: {
+        top_k: 40
+      }
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(requestBodies.length, 2);
+  assert.match(response.body, /event: settings_notice/);
+  assert.match(response.body, /top_k/);
+  assert.match(response.body, /event: error/);
+  assert.match(response.body, /unsupported option: top_k/);
+});
