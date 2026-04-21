@@ -9,4 +9,16 @@ if rg -n 'getByLabel\(["'\'']Prompt["'\'']\)' e2e >/tmp/e2e-lint.out 2>/dev/null
   exit 1
 fi
 
+if rg -n 'getByRole\(.*name:\s*["'\'']Models["'\'']' e2e >/tmp/e2e-lint.out 2>/dev/null; then
+  echo "Ambiguous Playwright model-menu selectors found. Use modelsButton(page) instead:"
+  cat /tmp/e2e-lint.out
+  exit 1
+fi
+
+if rg -n 'getByLabel\(["'\'']Max tokens override["'\'']\)' e2e >/tmp/e2e-lint.out 2>/dev/null; then
+  echo "Ambiguous Playwright max-token selectors found. Use maxTokensOverrideInput(page) instead:"
+  cat /tmp/e2e-lint.out
+  exit 1
+fi
+
 echo "E2E selector lint passed."

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { chatPrompt } from "./helpers";
+import { chatPrompt, modelsButton } from "./helpers";
 
 test("the Kubernetes deployment boots and completes a chat round-trip", async ({ page }) => {
   await page.goto("/");
@@ -8,7 +8,7 @@ test("the Kubernetes deployment boots and completes a chat round-trip", async ({
   const prompt = chatPrompt(page);
   await expect(prompt).toBeEnabled({ timeout: 60_000 });
 
-  await page.getByRole("button", { name: "Models" }).click();
+  await modelsButton(page).click();
   const modelSelector = page.getByLabel("Model selector");
   await expect
     .poll(async () => modelSelector.getByRole("option").count(), {

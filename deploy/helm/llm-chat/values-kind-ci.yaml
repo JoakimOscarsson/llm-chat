@@ -11,7 +11,7 @@ ollama:
   useStub: true
   maxParallelRequests: 1
   queuePromptAfterMs: 1000
-  stubResponseDelayMs: 4000
+  stubResponseDelayMs: 8000
 
 services:
   web:

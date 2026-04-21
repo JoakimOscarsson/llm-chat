@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { chatPrompt } from "./helpers";
+import { chatPrompt, maxTokensOverrideInput, modelsButton, queueBanner } from "./helpers";
 
 test("queued requests can be retargeted and cancelled while another response is streaming", async ({ browser }) => {
   const firstContext = await browser.newContext();
@@ -25,14 +25,14 @@ test("queued requests can be retargeted and cancelled while another response is 
     await secondPrompt.fill("Queue this request behind the first one.");
     await secondPage.getByRole("button", { name: "Send" }).click();
 
-    const queueBanner = secondPage.getByRole("status").filter({ hasText: "Queued for" }).last();
-    await expect(queueBanner).toContainText("Queued for llama3.1:8b", { timeout: 20_000 });
-    await expect(queueBanner).toContainText("Queued at position");
+    const queuedNotice = queueBanner(secondPage);
+    await expect(queuedNotice).toContainText("Queued for llama3.1:8b", { timeout: 30_000 });
+    await expect(queuedNotice).toContainText("Queued at position");
 
-    await secondPage.getByRole("button", { name: "Models" }).click();
+    await modelsButton(secondPage).click();
     await secondPage.getByRole("option", { name: /qwen2\.5-coder:7b/i }).click();
 
-    await expect(queueBanner).toContainText("Queued for qwen2.5-coder:7b", { timeout: 20_000 });
+    await expect(queuedNotice).toContainText("Queued for qwen2.5-coder:7b", { timeout: 30_000 });
 
     await expect(secondPage.getByRole("button", { name: "Leave queue" })).toBeVisible({ timeout: 20_000 });
     await secondPage.getByRole("button", { name: "Leave queue" }).click();
@@ -54,7 +54,7 @@ test("host metrics are visible in the deployed app and session overrides persist
   const sessionOverrides = page.getByText("Session overrides").locator("..");
   await page.getByText("Session overrides").click();
 
-  const maxTokensOverride = page.getByLabel("Max tokens override");
+  const maxTokensOverride = maxTokensOverrideInput(page);
   await maxTokensOverride.fill("2048");
   await page.getByRole("button", { name: "Save session" }).click();
   await expect(page.getByText("Session settings saved.")).toBeVisible({ timeout: 20_000 });
@@ -68,5 +68,5 @@ test("host metrics are visible in the deployed app and session overrides persist
 
   await page.getByRole("button", { name: /expand settings sidebar/i }).click();
   await page.getByText("Session overrides").click();
-  await expect(page.getByLabel("Max tokens override")).toHaveValue("2048");
+  await expect(maxTokensOverrideInput(page)).toHaveValue("2048");
 });
