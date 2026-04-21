@@ -366,6 +366,9 @@ h2 {
   font-size: 0.95rem;
   font-weight: 600;
   color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .session-meta {

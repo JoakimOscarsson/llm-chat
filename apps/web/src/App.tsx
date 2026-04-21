@@ -119,6 +119,8 @@ type StreamEventPayload = {
   message?: string;
   model?: string;
   status?: number;
+  sessionId?: string;
+  title?: string;
 };
 
 type TranscriptEntry =
@@ -725,6 +727,27 @@ export function App() {
       const notice = payload.text ?? "One or more settings are unsupported for this model. Retrying without them.";
       setLiveThinking(notice);
       setStatusText("Retrying with supported settings...");
+    }
+
+    if (eventName === "session_title" && payload.sessionId && payload.title) {
+      setSessions((current) =>
+        current.map((session) =>
+          session.id === payload.sessionId
+            ? {
+                ...session,
+                title: payload.title ?? session.title
+              }
+            : session
+        )
+      );
+      setActiveSession((current) =>
+        current && current.id === payload.sessionId
+          ? {
+              ...current,
+              title: payload.title ?? current.title
+            }
+          : current
+      );
     }
 
     if (eventName === "error") {

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { isoDateSchema } from "./common.js";
 import { appDefaultsSchema } from "./settings.js";
 
-export const SESSION_TITLE_MAX_LENGTH = 48;
+export const SESSION_TITLE_MAX_LENGTH = 28;
 
 const thinkingTraceSchema = z.object({
   content: z.string(),

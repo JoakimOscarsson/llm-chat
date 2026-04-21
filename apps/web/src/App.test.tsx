@@ -1099,11 +1099,13 @@ test("streams thinking and markdown response into the UI as chunks arrive", asyn
 
   controller.enqueue(encoder.encode('event: meta\ndata: {"requestId":"req_1","model":"llama3.1:8b"}\n\n'));
   controller.enqueue(encoder.encode('event: thinking_delta\ndata: {"text":"Thinking..."}\n\n'));
+  controller.enqueue(encoder.encode('event: session_title\ndata: {"sessionId":"sess_1","title":"Fix greeting format"}\n\n'));
 
   await waitFor(() => {
     expect(screen.getByText("Streaming reasoning...")).toBeInTheDocument();
     expect(container.querySelector(".thinking-box")).toHaveTextContent("Thinking...");
   });
+  expect(screen.getByRole("button", { name: /fix greeting format/i })).toBeInTheDocument();
 
   expect(screen.queryByText("Hello there")).not.toBeInTheDocument();
 
