@@ -658,6 +658,28 @@ function sleep(ms: number) {
   });
 }
 
+function sleepWithAbort(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+
+    function onAbort() {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(Object.assign(new Error("Aborted"), { name: "AbortError" }));
+    }
+
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 function snapshotToQueuedResponse(snapshot: QueueRequestSnapshot) {
   return queuedChatRequestResponseSchema.parse({
     request: {
@@ -966,28 +988,6 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       model: initialModel
     });
 
-    if (config.useStub) {
-      writeSseEvent(reply, "started", {
-        requestId,
-        model: initialModel,
-        startedAt: nowIso()
-      });
-      writeSseEvent(reply, "thinking_delta", {
-        text: "Thinking..."
-      });
-      if (config.stubResponseDelayMs > 0) {
-        await sleep(config.stubResponseDelayMs);
-      }
-      writeSseEvent(reply, "response_delta", {
-        text: "Hello there"
-      });
-      writeSseEvent(reply, "done", {
-        finishReason: "stub"
-      });
-      endReply(reply);
-      return reply;
-    }
-
     const abortController = new AbortController();
     reply.raw.on("close", () => {
       if (!reply.raw.writableEnded) {
@@ -1030,6 +1030,24 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
         model: activeModel,
         startedAt: executionSnapshot.startedAt ?? nowIso()
       });
+
+      if (config.useStub) {
+        writeSseEvent(reply, "thinking_delta", {
+          text: "Thinking..."
+        });
+        if (config.stubResponseDelayMs > 0) {
+          await sleepWithAbort(config.stubResponseDelayMs, abortController.signal);
+        }
+        writeSseEvent(reply, "response_delta", {
+          text: "Hello there"
+        });
+        await coordinationStore.finalizeRequest(requestId, "completed");
+        writeSseEvent(reply, "done", {
+          finishReason: "stub"
+        });
+        endReply(reply);
+        return reply;
+      }
 
       const streamResolution = await resolveChatStreamWithFallbacks({
         config,

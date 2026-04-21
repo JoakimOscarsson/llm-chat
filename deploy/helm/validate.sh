@@ -16,5 +16,7 @@ docker run --rm \
     helm template llm-chat . -f values-kind-ci.yaml >/tmp/kind-ci.yaml &&
     helm template llm-chat . --set cloudflareTunnel.enabled=true --set cloudflareTunnel.token=test-token >/tmp/cloudflare.yaml &&
     helm template llm-chat . --set appSecrets.existingSecretName=external-app-secrets >/tmp/external-secrets.yaml &&
-    ! grep -q "kind: Job" /tmp/kind-ci.yaml
+    ! grep -q "kind: Job" /tmp/kind-ci.yaml &&
+    grep -q "WEB_API_PROXY_TARGET: http://llm-chat-llm-chat-api-gateway:4000" /tmp/kind-ci.yaml &&
+    grep -q "checksum/config:" /tmp/kind-ci.yaml
   '

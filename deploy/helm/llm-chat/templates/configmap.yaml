@@ -5,6 +5,7 @@ metadata:
   labels:
     {{- include "llm-chat.labels" . | nindent 4 }}
 data:
+  WEB_API_PROXY_TARGET: http://{{ include "llm-chat.serviceName" (dict "root" . "name" "api-gateway") }}:4000
   CHAT_SERVICE_URL: http://{{ include "llm-chat.serviceName" (dict "root" . "name" "chat-service") }}:4001
   MODEL_SERVICE_URL: http://{{ include "llm-chat.serviceName" (dict "root" . "name" "model-service") }}:4002
   SESSION_SERVICE_URL: http://{{ include "llm-chat.serviceName" (dict "root" . "name" "session-service") }}:4003

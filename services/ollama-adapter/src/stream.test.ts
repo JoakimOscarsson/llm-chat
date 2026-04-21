@@ -32,6 +32,80 @@ test("POST /internal/provider/chat/stream returns stub thinking and response eve
   assert.match(response.body, /event: done/);
 });
 
+test("POST /internal/provider/chat/stream applies queue coordination even when stub mode is enabled", async () => {
+  const coordinator = new InMemoryQueueCoordinator({
+    maxParallelRequests: 1
+  });
+
+  const appOne = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: true,
+      redisUrl: "",
+      maxParallelRequests: 1,
+      queuePromptAfterMs: 25,
+      runtimeStatusTtlMs: 0,
+      podInstanceId: "pod-one",
+      stubResponseDelayMs: 150
+    },
+    coordinationStore: coordinator
+  });
+  const appTwo = createApp({
+    config: {
+      port: 4006,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: true,
+      redisUrl: "",
+      maxParallelRequests: 1,
+      queuePromptAfterMs: 25,
+      runtimeStatusTtlMs: 0,
+      podInstanceId: "pod-two",
+      stubResponseDelayMs: 150
+    },
+    coordinationStore: coordinator
+  });
+
+  const firstResponsePromise = appOne.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_1",
+      model: "llama3.1:8b",
+      messages: [{ role: "user", content: "First" }]
+    }
+  });
+
+  await waitFor(async () => (await coordinator.getRequestSnapshot("req_1"))?.state === "running");
+
+  const secondResponsePromise = appTwo.inject({
+    method: "POST",
+    url: "/internal/provider/chat/stream",
+    payload: {
+      requestId: "req_2",
+      model: "qwen2.5-coder:7b",
+      messages: [{ role: "user", content: "Second" }]
+    }
+  });
+
+  await waitFor(async () => (await coordinator.getRequestSnapshot("req_2"))?.state === "queued");
+
+  const [firstResponse, secondResponse] = await Promise.all([firstResponsePromise, secondResponsePromise]);
+
+  assert.equal(firstResponse.statusCode, 200);
+  assert.equal(secondResponse.statusCode, 200);
+  assert.match(secondResponse.body, /event: queued/);
+  assert.match(secondResponse.body, /event: queue_prompt/);
+  assert.match(secondResponse.body, /event: started/);
+  assert.match(secondResponse.body, /Hello there/);
+});
+
 test("POST /internal/provider/chat/stop acknowledges a stop request", async () => {
   const app = createApp({
     config: {

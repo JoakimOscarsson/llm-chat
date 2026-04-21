@@ -2706,22 +2706,32 @@ test("cancels a queued request from the delayed queue prompt", async () => {
     encoder.encode('event: queued\ndata: {"requestId":"req_queued","position":1,"queueDepth":1,"model":"llama3.1:8b","promptAfterMs":12000}\n\n')
   );
 
-  setTimeout(() => {
-    controller.enqueue(encoder.encode('event: queue_prompt\ndata: {"requestId":"req_queued","position":1,"waitedMs":12034}\n\n'));
+  const queuePromptTimer = setTimeout(() => {
+    try {
+      controller.enqueue(
+        encoder.encode('event: queue_prompt\ndata: {"requestId":"req_queued","position":1,"waitedMs":12034}\n\n')
+      );
+    } catch {
+      // The client may have already cancelled and closed the stream.
+    }
   }, 25);
 
-  await waitFor(() => {
-    expect(screen.getAllByRole("button", { name: /leave queue/i }).length).toBeGreaterThan(0);
-  });
+  try {
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: /leave queue/i }).length).toBeGreaterThan(0);
+    });
 
-  fireEvent.click(screen.getAllByRole("button", { name: /leave queue/i })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /leave queue/i })[0]!);
 
-  await waitFor(() => {
-    expect(stopRequested).toBe(true);
-  });
-  await waitFor(() => {
-    expect(screen.getByText("Queued request cancelled.")).toBeInTheDocument();
-  });
+    await waitFor(() => {
+      expect(stopRequested).toBe(true);
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Queued request cancelled.")).toBeInTheDocument();
+    });
+  } finally {
+    clearTimeout(queuePromptTimer);
+  }
 });
 
 test("highlights fast-path models and stays usable when runtime data is unavailable", async () => {
