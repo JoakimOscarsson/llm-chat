@@ -12,3 +12,15 @@ export const modelsResponseSchema = z.object({
   fetchedAt: isoDateSchema
 });
 
+export const modelWarmRequestSchema = z.object({
+  model: z.string().min(1),
+  keep_alive: z.union([z.string(), z.number()]).optional()
+});
+
+export const modelWarmResponseSchema = z.object({
+  ready: z.literal(true),
+  model: z.string(),
+  warmedAt: isoDateSchema,
+  loadDuration: z.number().nonnegative().optional(),
+  totalDuration: z.number().nonnegative().optional()
+});

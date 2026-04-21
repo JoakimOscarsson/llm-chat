@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { fileURLToPath } from "node:url";
-import { modelsResponseSchema } from "@llm-chat-app/contracts";
+import { modelWarmRequestSchema, modelWarmResponseSchema, modelsResponseSchema } from "@llm-chat-app/contracts";
 
 export type ModelServiceConfig = {
   port: number;
@@ -26,6 +26,18 @@ async function fetchModels(config: ModelServiceConfig, fetchImpl: typeof fetch) 
   return modelsResponseSchema.parse(await response.json());
 }
 
+async function warmModel(config: ModelServiceConfig, fetchImpl: typeof fetch, body: { model: string; keep_alive?: string | number }) {
+  const response = await fetchImpl(`${config.ollamaAdapterUrl}/internal/provider/models/warm`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  return modelWarmResponseSchema.parse(await response.json());
+}
+
 export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   const config = options.config ?? loadConfig();
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -47,6 +59,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   }));
 
   app.get("/internal/models", async () => fetchModels(config, fetchImpl));
+  app.post("/internal/models/warm", async (request) => warmModel(config, fetchImpl, modelWarmRequestSchema.parse(request.body ?? {})));
 
   return app;
 }

@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { fileURLToPath } from "node:url";
-import { modelsResponseSchema } from "@llm-chat-app/contracts";
+import { modelWarmRequestSchema, modelWarmResponseSchema, modelsResponseSchema } from "@llm-chat-app/contracts";
 
 export type OllamaAdapterConfig = {
   port: number;
@@ -129,6 +129,56 @@ async function fetchChatStream(
   });
 }
 
+async function warmModel(
+  config: OllamaAdapterConfig,
+  fetchImpl: typeof fetch,
+  payload: { model: string; keep_alive?: string | number }
+) {
+  if (config.useStub) {
+    return modelWarmResponseSchema.parse({
+      ready: true,
+      model: payload.model,
+      warmedAt: new Date().toISOString(),
+      loadDuration: 0,
+      totalDuration: 0
+    });
+  }
+
+  const response = await fetchImpl(`${config.ollamaBaseUrl}/api/generate`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "CF-Access-Client-Id": config.cfAccessClientId,
+      "CF-Access-Client-Secret": config.cfAccessClientSecret
+    },
+    body: JSON.stringify({
+      model: payload.model,
+      prompt: "",
+      stream: false,
+      ...(payload.keep_alive !== undefined ? { keep_alive: payload.keep_alive } : {})
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = parseUpstreamErrorMessage(await response.text());
+    throw new Error(errorText || `Ollama upstream returned ${response.status}`);
+  }
+
+  const responsePayload = (await response.json()) as {
+    model?: string;
+    load_duration?: number;
+    total_duration?: number;
+  };
+
+  return modelWarmResponseSchema.parse({
+    ready: true,
+    model: responsePayload.model ?? payload.model,
+    warmedAt: new Date().toISOString(),
+    loadDuration: responsePayload.load_duration,
+    totalDuration: responsePayload.total_duration
+  });
+}
+
 function withoutUnsupportedOption(payload: ChatPayload, key: string): ChatPayload {
   const currentOptions = payload.options ?? {};
 
@@ -213,6 +263,11 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   }));
 
   app.get("/internal/provider/models", async () => fetchModels(config, fetchImpl));
+
+  app.post("/internal/provider/models/warm", async (request) => {
+    const payload = modelWarmRequestSchema.parse(request.body ?? {});
+    return warmModel(config, fetchImpl, payload);
+  });
 
   app.post("/internal/provider/chat/stream", async (request, reply) => {
     const payload = (request.body ?? {}) as ChatPayload;

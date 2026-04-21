@@ -157,6 +157,41 @@ test("PATCH /internal/sessions/:sessionId updates overrides and context shaping"
   assert.equal(contextResponse.json().overrides.num_ctx, 2048);
 });
 
+test("POST /internal/sessions/:sessionId/model-switch persists a marker and updates the active model", async () => {
+  const app = createApp();
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/internal/sessions/sess_1/model-switch",
+    payload: {
+      model: "qwen2.5-coder:7b",
+      createdAt: "2026-04-20T18:05:00.000Z"
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().session.model, "qwen2.5-coder:7b");
+  assert.deepEqual(response.json().session.messages, [
+    {
+      id: "switch_sess_1_2026-04-20T18:05:00.000Z",
+      role: "system",
+      content: "",
+      createdAt: "2026-04-20T18:05:00.000Z",
+      kind: "model_switch",
+      model: "qwen2.5-coder:7b"
+    }
+  ]);
+
+  const contextResponse = await app.inject({
+    method: "GET",
+    url: "/internal/sessions/sess_1/context"
+  });
+
+  assert.equal(contextResponse.statusCode, 200);
+  assert.equal(contextResponse.json().model, "qwen2.5-coder:7b");
+  assert.deepEqual(contextResponse.json().history, []);
+});
+
 test("POST /internal/sessions/:sessionId/messages and /assistant-result persist new turns into context history", async () => {
   const app = createApp();
 

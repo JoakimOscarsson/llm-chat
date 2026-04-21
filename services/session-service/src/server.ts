@@ -5,6 +5,7 @@ import {
   appDefaultsSchema,
   assistantResultPersistRequestSchema,
   createSessionRequestSchema,
+  modelSwitchPersistRequestSchema,
   messagePersistRequestSchema,
   sessionContextResponseSchema,
   sessionPatchSchema,
@@ -25,6 +26,8 @@ type SessionMessage = {
   role: "system" | "user" | "assistant";
   content: string;
   createdAt: string;
+  kind?: "message" | "model_switch";
+  model?: string;
   thinking?: {
     content: string;
     collapsedByDefault: true;
@@ -217,6 +220,35 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
       model: payload.model ?? session.model,
       overrides: payload.overrides ? { ...session.overrides, ...payload.overrides } : session.overrides,
       updatedAt: fixedNow
+    };
+
+    sessionStore.set(sessionId, updated);
+    return sessionResponseSchema.parse({ session: updated });
+  });
+
+  app.post("/internal/sessions/:sessionId/model-switch", async (request, reply) => {
+    const sessionId = (request.params as { sessionId: string }).sessionId;
+    const session = sessionStore.get(sessionId);
+
+    if (!session) {
+      return reply.code(404).send({ message: "Session not found" });
+    }
+
+    const payload = modelSwitchPersistRequestSchema.parse(request.body ?? {});
+    const createdAt = payload.createdAt ?? fixedNow;
+    const marker: SessionMessage = {
+      id: `switch_${sessionId}_${createdAt}`,
+      role: "system",
+      content: "",
+      createdAt,
+      kind: "model_switch",
+      model: payload.model
+    };
+    const updated: SessionRecord = {
+      ...session,
+      model: payload.model,
+      messages: [...session.messages, marker],
+      updatedAt: createdAt
     };
 
     sessionStore.set(sessionId, updated);

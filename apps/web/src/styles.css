@@ -396,6 +396,10 @@ h2 {
   min-height: 0;
 }
 
+.composer {
+  position: relative;
+}
+
 .thinking-box {
   min-height: 0;
   height: 148px;
@@ -427,6 +431,25 @@ h2 {
   max-width: min(72%, 560px);
   border-radius: 22px;
   padding: 12px 14px;
+}
+
+.model-switch-marker {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 10px 0 2px;
+}
+
+.model-switch-marker small {
+  color: #64748b;
+  font-size: 0.74rem;
+  letter-spacing: 0.03em;
+}
+
+.model-switch-marker hr {
+  width: min(100%, 520px);
+  border: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
 }
 
 .empty-state {
@@ -532,6 +555,30 @@ details summary {
   resize: vertical;
 }
 
+.composer-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-radius: 22px;
+  background: rgba(248, 250, 252, 0.76);
+  backdrop-filter: blur(6px);
+  color: #334155;
+  font-weight: 600;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid rgba(59, 130, 246, 0.2);
+  border-top-color: #2563eb;
+  animation: spin 0.8s linear infinite;
+}
+
 .primary-button,
 .secondary-button {
   border: 0;
@@ -598,6 +645,12 @@ details summary {
 ul {
   margin: 0;
   padding-left: 18px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 1180px) {

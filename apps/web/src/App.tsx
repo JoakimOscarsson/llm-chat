@@ -61,6 +61,8 @@ type SessionDetail = {
     role: "system" | "user" | "assistant";
     content: string;
     createdAt: string;
+    kind?: "message" | "model_switch";
+    model?: string;
     thinking?: {
       content: string;
       collapsedByDefault: true;
@@ -115,6 +117,23 @@ type StreamEventPayload = {
   status?: number;
 };
 
+type TranscriptEntry =
+  | {
+      id: string;
+      role: "user" | "assistant";
+      content: string;
+      thinking?: string;
+      isStreaming?: boolean;
+      kind?: "message";
+    }
+  | {
+      id: string;
+      role: "system";
+      kind: "model_switch";
+      model: string;
+      content: string;
+    };
+
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -153,7 +172,7 @@ function parseEventBlock(eventBlock: string) {
 }
 
 function appendToLatestAssistant(
-  messages: ChatMessage[],
+  messages: TranscriptEntry[],
   update: (message: ChatMessage) => ChatMessage
 ) {
   const nextMessages = [...messages];
@@ -170,11 +189,11 @@ function appendToLatestAssistant(
     return messages;
   }
 
-  nextMessages[assistantIndex] = update(nextMessages[assistantIndex]);
+  nextMessages[assistantIndex] = update(nextMessages[assistantIndex] as ChatMessage);
   return nextMessages;
 }
 
-function latestAssistantHasThinking(messages: ChatMessage[]) {
+function latestAssistantHasThinking(messages: TranscriptEntry[]) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
 
@@ -211,18 +230,25 @@ function parseStopSequences(value: string) {
     .filter(Boolean);
 }
 
-function mapSessionMessagesToTranscript(session: SessionDetail): ChatMessage[] {
+function mapSessionMessagesToTranscript(session: SessionDetail): TranscriptEntry[] {
   return session.messages
-    .filter(
-      (message): message is SessionDetail["messages"][number] & { role: "user" | "assistant" } =>
-        message.role === "user" || message.role === "assistant"
-    )
     .map((message) => ({
-      id: message.id,
-      role: message.role,
-      content: message.content,
-      thinking: message.role === "assistant" ? message.thinking?.content : undefined,
-      isStreaming: false
+      ...(message.kind === "model_switch"
+        ? {
+            id: message.id,
+            role: "system" as const,
+            kind: "model_switch" as const,
+            model: message.model ?? session.model,
+            content: message.content
+          }
+        : {
+            id: message.id,
+            role: message.role as "user" | "assistant",
+            content: message.content,
+            thinking: message.role === "assistant" ? message.thinking?.content : undefined,
+            isStreaming: false,
+            kind: "message" as const
+          })
     }));
 }
 
@@ -274,18 +300,21 @@ function IconButton({
   label,
   children,
   onClick,
-  expanded
+  expanded,
+  disabled
 }: {
   label: string;
   children: React.ReactNode;
   onClick?: () => void;
   expanded?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       aria-expanded={expanded}
       aria-label={label}
       className="icon-button"
+      disabled={disabled}
       type="button"
       onClick={onClick}
     >
@@ -373,10 +402,11 @@ export function App() {
   const [overrideKeepAlive, setOverrideKeepAlive] = useState("");
   const [overrideStatus, setOverrideStatus] = useState("Session inherits app defaults");
   const [prompt, setPrompt] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<TranscriptEntry[]>([]);
   const [liveThinking, setLiveThinking] = useState("Ready for the next prompt.");
   const [statusText, setStatusText] = useState("Ready");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isModelSwitching, setIsModelSwitching] = useState(false);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const [transcriptPinned, setTranscriptPinned] = useState(true);
   const [thinkingPinned, setThinkingPinned] = useState(true);
@@ -682,7 +712,7 @@ export function App() {
     event.preventDefault();
 
     const messageText = prompt.trim();
-    if (!messageText) {
+    if (!messageText || isModelSwitching) {
       return;
     }
 
@@ -815,6 +845,11 @@ export function App() {
   };
 
   const handlePromptKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isModelSwitching) {
+      event.preventDefault();
+      return;
+    }
+
     if (event.key !== "Enter") {
       return;
     }
@@ -832,6 +867,80 @@ export function App() {
   const handleRefreshModels = async () => {
     const refreshedModels = await loadModels();
     setSelectedModel((current) => pickAvailableModel(current, refreshedModels, activeSession?.model ?? sessions[0]?.model ?? null));
+  };
+
+  const handleModelSelection = async (nextModel: string) => {
+    setModelMenuOpen(false);
+
+    if (!nextModel || nextModel === selectedModel || isStreaming || isModelSwitching) {
+      return;
+    }
+
+    const previousModel = selectedModel;
+    const effectiveKeepAlive = overrideKeepAlive.trim() || defaultKeepAlive.trim() || undefined;
+
+    setIsModelSwitching(true);
+    setSelectedModel(nextModel);
+    setStatusText(`Loading ${nextModel}...`);
+    setLiveThinking(`Preloading ${nextModel} before chat starts.`);
+
+    try {
+      const warmResponse = await fetch(`${apiBaseUrl}/api/models/warm`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          model: nextModel,
+          ...(effectiveKeepAlive ? { keep_alive: effectiveKeepAlive } : {})
+        })
+      });
+
+      if (!warmResponse.ok) {
+        throw new Error(`Model warmup failed with ${warmResponse.status}`);
+      }
+
+      if (selectedSessionId) {
+        const response = await fetch(`${apiBaseUrl}/api/sessions/${selectedSessionId}/model-switch`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            model: nextModel,
+            createdAt: new Date().toISOString()
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Could not persist the model switch for ${nextModel}.`);
+        }
+
+        const payload = (await response.json()) as { session: SessionDetail };
+        setActiveSession(payload.session);
+        setMessages(mapSessionMessagesToTranscript(payload.session));
+        setSessions((current) =>
+          current.map((session) =>
+            session.id === payload.session.id
+              ? {
+                  ...session,
+                  model: payload.session.model,
+                  updatedAt: payload.session.updatedAt
+                }
+              : session
+          )
+        );
+      }
+
+      setStatusText(`${nextModel} ready`);
+      setLiveThinking(`Model ${nextModel} is loaded and ready.`);
+    } catch (error) {
+      setSelectedModel(previousModel);
+      setStatusText("Model switch failed");
+      setLiveThinking(error instanceof Error ? error.message : `Could not load ${nextModel}.`);
+    } finally {
+      setIsModelSwitching(false);
+    }
   };
 
   const handleCreateSession = async () => {
@@ -1108,6 +1217,7 @@ export function App() {
                 aria-expanded={modelMenuOpen}
                 aria-label="Models"
                 className="icon-button"
+                disabled={isStreaming || isModelSwitching}
                 type="button"
                 onClick={() => setModelMenuOpen((current) => !current)}
               >
@@ -1119,10 +1229,8 @@ export function App() {
                   <select
                     aria-label="Model selector"
                     className="model-select"
-                    onChange={(event) => {
-                      setSelectedModel(event.target.value);
-                      setModelMenuOpen(false);
-                    }}
+                    disabled={isStreaming || isModelSwitching}
+                    onChange={(event) => void handleModelSelection(event.target.value)}
                     value={selectedModel}
                   >
                     {models.map((model) => (
@@ -1132,7 +1240,7 @@ export function App() {
                     ))}
                   </select>
                 </label>
-                <button className="secondary-button" type="button" onClick={() => void handleRefreshModels()}>
+                <button className="secondary-button" disabled={isStreaming || isModelSwitching} type="button" onClick={() => void handleRefreshModels()}>
                   Refresh models
                 </button>
               </div>
@@ -1168,28 +1276,42 @@ export function App() {
             </article>
           ) : null}
           {messages.map((message) => (
-            <article className={`message ${message.role}-message`} key={message.id}>
-              {message.role === "assistant" && message.thinking ? (
-                <details>
-                  <summary>{message.isStreaming ? "Thinking trace (live)" : "Thinking trace"}</summary>
-                  <div className="thinking-trace">{message.thinking}</div>
-                </details>
-              ) : null}
-              {message.role === "assistant" ? (
-                <div className="markdown-body">
-                  {message.content ? <ReactMarkdown>{message.content}</ReactMarkdown> : <p className="pending-copy">Waiting for answer...</p>}
-                </div>
-              ) : (
-                <p>{message.content}</p>
-              )}
-            </article>
+            message.kind === "model_switch" ? (
+              <article className="model-switch-marker" key={message.id}>
+                <small>Switched to {message.model}</small>
+                <hr />
+              </article>
+            ) : (
+              <article className={`message ${message.role}-message`} key={message.id}>
+                {message.role === "assistant" && message.thinking ? (
+                  <details>
+                    <summary>{message.isStreaming ? "Thinking trace (live)" : "Thinking trace"}</summary>
+                    <div className="thinking-trace">{message.thinking}</div>
+                  </details>
+                ) : null}
+                {message.role === "assistant" ? (
+                  <div className="markdown-body">
+                    {message.content ? <ReactMarkdown>{message.content}</ReactMarkdown> : <p className="pending-copy">Waiting for answer...</p>}
+                  </div>
+                ) : (
+                  <p>{message.content}</p>
+                )}
+              </article>
+            )
           ))}
         </section>
 
         <form className="composer" onSubmit={handleSubmit} ref={composerFormRef}>
+          {isModelSwitching ? (
+            <div className="composer-overlay" role="status" aria-live="polite">
+              <span className="spinner" aria-hidden="true" />
+              <span>Loading {selectedModel}…</span>
+            </div>
+          ) : null}
           <textarea
             aria-label="Prompt"
             className="composer-input"
+            disabled={isModelSwitching}
             placeholder="Send a message to the model..."
             rows={1}
             value={prompt}
@@ -1206,7 +1328,7 @@ export function App() {
               </span>
             </div>
             <div className="composer-button-row">
-              <button className="secondary-button" disabled={!selectedSessionId || isStreaming} type="button" onClick={() => void handleClearHistory()}>
+              <button className="secondary-button" disabled={!selectedSessionId || isStreaming || isModelSwitching} type="button" onClick={() => void handleClearHistory()}>
                 Clear history
               </button>
               {isStreaming ? (
@@ -1214,7 +1336,7 @@ export function App() {
                   Stop
                 </button>
               ) : (
-                <button className="primary-button" type="submit">
+                <button className="primary-button" disabled={isModelSwitching} type="submit">
                   Send
                 </button>
               )}

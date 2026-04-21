@@ -57,6 +57,61 @@ test("POST /internal/provider/chat/stop acknowledges a stop request", async () =
   });
 });
 
+test("POST /internal/provider/models/warm preloads a model through generate", async () => {
+  let forwardedHeaders: Record<string, string> | undefined;
+  let forwardedBody = "";
+
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "client-id",
+      cfAccessClientSecret: "client-secret",
+      ollamaTimeoutMs: 60_000,
+      useStub: false
+    },
+    fetchImpl: async (input, init) => {
+      assert.equal(String(input), "https://example-ollama.test/api/generate");
+      forwardedHeaders = init?.headers as Record<string, string> | undefined;
+      forwardedBody = String(init?.body ?? "");
+
+      return new Response(
+        JSON.stringify({
+          model: "qwen2.5-coder:7b",
+          done: true,
+          load_duration: 125_000_000,
+          total_duration: 130_000_000
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/internal/provider/models/warm",
+    payload: {
+      model: "qwen2.5-coder:7b",
+      keep_alive: -1
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.ok(forwardedHeaders);
+  assert.equal(forwardedHeaders?.["CF-Access-Client-Id"], "client-id");
+  assert.equal(forwardedHeaders?.["CF-Access-Client-Secret"], "client-secret");
+  assert.match(forwardedBody, /"prompt":""/);
+  assert.match(forwardedBody, /"stream":false/);
+  assert.match(forwardedBody, /"keep_alive":-1/);
+  assert.equal(response.json().ready, true);
+  assert.equal(response.json().model, "qwen2.5-coder:7b");
+  assert.equal(response.json().loadDuration, 125_000_000);
+});
+
 test("POST /internal/provider/chat/stream normalizes a real Ollama NDJSON stream", async () => {
   const upstreamBody = [
     JSON.stringify({

@@ -7,13 +7,25 @@ const thinkingTraceSchema = z.object({
   collapsedByDefault: z.literal(true)
 });
 
-export const chatMessageSchema = z.object({
+const chatContentMessageSchema = z.object({
   id: z.string(),
   role: z.enum(["system", "user", "assistant"]),
   content: z.string(),
   createdAt: isoDateSchema,
-  thinking: thinkingTraceSchema.optional()
+  thinking: thinkingTraceSchema.optional(),
+  kind: z.literal("message").optional()
 });
+
+const modelSwitchMarkerSchema = z.object({
+  id: z.string(),
+  role: z.literal("system"),
+  content: z.string(),
+  createdAt: isoDateSchema,
+  kind: z.literal("model_switch"),
+  model: z.string().min(1)
+});
+
+export const chatMessageSchema = z.union([chatContentMessageSchema, modelSwitchMarkerSchema]);
 
 export const sessionOverridesSchema = z.object({
   systemPrompt: z.string().optional(),
@@ -86,4 +98,9 @@ export const sessionPatchSchema = z.object({
   title: z.string().optional(),
   model: z.string().optional(),
   overrides: sessionOverridesSchema.optional()
+});
+
+export const modelSwitchPersistRequestSchema = z.object({
+  model: z.string().min(1),
+  createdAt: isoDateSchema.optional()
 });

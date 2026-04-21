@@ -11,6 +11,16 @@ export type ChatMessage = {
   content: string;
   createdAt: string;
   thinking?: ThinkingTrace;
+  kind?: "message";
+};
+
+export type ModelSwitchMarker = {
+  id: string;
+  role: "system";
+  content: string;
+  createdAt: string;
+  kind: "model_switch";
+  model: string;
 };
 
 export type SessionSummary = {
@@ -19,4 +29,3 @@ export type SessionSummary = {
   model: string;
   updatedAt: string;
 };
-

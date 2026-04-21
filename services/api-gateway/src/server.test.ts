@@ -49,6 +49,53 @@ test("GET /api/models proxies the model service response", async () => {
   ]);
 });
 
+test("POST /api/models/warm proxies model warmup to the model service", async () => {
+  let forwardedBody = "";
+
+  const app = createApp({
+    config: {
+      port: 4000,
+      chatServiceUrl: "http://chat-service:4001",
+      modelServiceUrl: "http://model-service:4002",
+      sessionServiceUrl: "http://session-service:4003",
+      metricsServiceUrl: "http://metrics-service:4004"
+    },
+    fetchImpl: async (input, init) => {
+      assert.equal(String(input), "http://model-service:4002/internal/models/warm");
+      assert.equal(init?.method, "POST");
+      forwardedBody = String(init?.body ?? "");
+
+      return new Response(
+        JSON.stringify({
+          ready: true,
+          model: "qwen2.5-coder:7b",
+          warmedAt: "2026-04-20T18:04:00Z",
+          loadDuration: 125_000_000,
+          totalDuration: 130_000_000
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/models/warm",
+    payload: {
+      model: "qwen2.5-coder:7b",
+      keep_alive: -1
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(forwardedBody, /"keep_alive":-1/);
+  assert.equal(response.json().ready, true);
+});
+
 test("GET /api/sessions proxies the session service response", async () => {
   const app = createApp({
     config: {
@@ -304,6 +351,66 @@ test("PATCH /api/sessions/:sessionId proxies session override updates", async ()
   assert.equal(response.statusCode, 200);
   assert.match(forwardedBody, /"requestHistoryCount":2/);
   assert.equal(response.json().session.model, "qwen2.5-coder:7b");
+});
+
+test("POST /api/sessions/:sessionId/model-switch proxies model switch markers", async () => {
+  let forwardedBody = "";
+
+  const app = createApp({
+    config: {
+      port: 4000,
+      chatServiceUrl: "http://chat-service:4001",
+      modelServiceUrl: "http://model-service:4002",
+      sessionServiceUrl: "http://session-service:4003",
+      metricsServiceUrl: "http://metrics-service:4004"
+    },
+    fetchImpl: async (input, init) => {
+      assert.equal(String(input), "http://session-service:4003/internal/sessions/sess_1/model-switch");
+      assert.equal(init?.method, "POST");
+      forwardedBody = String(init?.body ?? "");
+
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "New chat",
+            model: "qwen2.5-coder:7b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:05:00.000Z",
+            messages: [
+              {
+                id: "switch_sess_1_2026-04-20T18:05:00.000Z",
+                role: "system",
+                content: "",
+                createdAt: "2026-04-20T18:05:00.000Z",
+                kind: "model_switch",
+                model: "qwen2.5-coder:7b"
+              }
+            ],
+            overrides: {}
+          }
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/sessions/sess_1/model-switch",
+    payload: {
+      model: "qwen2.5-coder:7b",
+      createdAt: "2026-04-20T18:05:00.000Z"
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(forwardedBody, /"model":"qwen2.5-coder:7b"/);
+  assert.equal(response.json().session.messages[0].kind, "model_switch");
 });
 
 test("DELETE /api/sessions/:sessionId/history proxies clear-history requests", async () => {

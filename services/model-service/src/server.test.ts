@@ -43,3 +43,49 @@ test("GET /internal/models fetches normalized models from the provider adapter",
     }
   ]);
 });
+
+test("POST /internal/models/warm proxies model warmup to the provider adapter", async () => {
+  let forwardedBody = "";
+
+  const app = createApp({
+    config: {
+      port: 4002,
+      ollamaAdapterUrl: "http://ollama-adapter:4005",
+      modelCacheTtlMs: 30_000
+    },
+    fetchImpl: async (input, init) => {
+      assert.equal(String(input), "http://ollama-adapter:4005/internal/provider/models/warm");
+      assert.equal(init?.method, "POST");
+      forwardedBody = String(init?.body ?? "");
+
+      return new Response(
+        JSON.stringify({
+          ready: true,
+          model: "qwen2.5-coder:7b",
+          warmedAt: "2026-04-20T18:04:00Z",
+          loadDuration: 125_000_000,
+          totalDuration: 130_000_000
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/internal/models/warm",
+    payload: {
+      model: "qwen2.5-coder:7b",
+      keep_alive: -1
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(forwardedBody, /"model":"qwen2.5-coder:7b"/);
+  assert.equal(response.json().ready, true);
+  assert.equal(response.json().model, "qwen2.5-coder:7b");
+});

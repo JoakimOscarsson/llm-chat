@@ -5,6 +5,8 @@ import {
   appDefaultsResponseSchema,
   createSessionRequestSchema,
   gpuMetricsResponseSchema,
+  modelWarmRequestSchema,
+  modelWarmResponseSchema,
   modelsResponseSchema,
   sessionResponseSchema,
   sessionsResponseSchema
@@ -36,6 +38,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiGatewayConf
 async function fetchModels(config: ApiGatewayConfig, fetchImpl: typeof fetch) {
   const response = await fetchImpl(`${config.modelServiceUrl}/internal/models`);
   return modelsResponseSchema.parse(await response.json());
+}
+
+async function warmModel(config: ApiGatewayConfig, fetchImpl: typeof fetch, body: { model: string; keep_alive?: string | number }) {
+  const response = await fetchImpl(`${config.modelServiceUrl}/internal/models/warm`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  return modelWarmResponseSchema.parse(await response.json());
 }
 
 async function fetchSessions(config: ApiGatewayConfig, fetchImpl: typeof fetch) {
@@ -88,6 +102,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
   }));
 
   app.get("/api/models", async () => fetchModels(config, fetchImpl));
+  app.post("/api/models/warm", async (request) => warmModel(config, fetchImpl, modelWarmRequestSchema.parse(request.body ?? {})));
 
   app.get("/api/sessions", async () => fetchSessions(config, fetchImpl));
 
@@ -128,6 +143,19 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
     const sessionId = (request.params as { sessionId: string }).sessionId;
     const upstream = await fetchImpl(`${config.sessionServiceUrl}/internal/sessions/${sessionId}`, {
       method: "PATCH",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(request.body ?? {})
+    });
+
+    return sessionResponseSchema.parse(await upstream.json());
+  });
+
+  app.post("/api/sessions/:sessionId/model-switch", async (request) => {
+    const sessionId = (request.params as { sessionId: string }).sessionId;
+    const upstream = await fetchImpl(`${config.sessionServiceUrl}/internal/sessions/${sessionId}/model-switch`, {
+      method: "POST",
       headers: {
         "content-type": "application/json"
       },

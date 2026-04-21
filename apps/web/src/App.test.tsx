@@ -57,6 +57,74 @@ test("renders discovered models from the gateway", async () => {
       );
     }
 
+    if (url.endsWith("/api/sessions/sess_1")) {
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "Troubleshooting nginx config",
+            model: "missing-model:latest",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:03:00.000Z",
+            messages: [],
+            overrides: {}
+          }
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          ready: true,
+          model: "qwen2.5:7b",
+          warmedAt: "2026-04-20T18:04:00Z",
+          loadDuration: 125_000_000,
+          totalDuration: 130_000_000
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1/model-switch")) {
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "Troubleshooting nginx config",
+            model: "qwen2.5:7b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:05:00.000Z",
+            messages: [
+              {
+                id: "switch_sess_1_2026-04-20T18:05:00.000Z",
+                role: "system",
+                content: "",
+                createdAt: "2026-04-20T18:05:00.000Z",
+                kind: "model_switch",
+                model: "qwen2.5:7b"
+              }
+            ],
+            overrides: {}
+          }
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+
     if (url.endsWith("/api/health")) {
       return new Response(
         JSON.stringify({
@@ -119,6 +187,152 @@ test("renders discovered models from the gateway", async () => {
 
   await waitFor(() => {
     expect(screen.getAllByRole("button", { name: /models/i })[0]).toHaveAttribute("aria-expanded", "false");
+  });
+  expect(await screen.findByText("Switched to qwen2.5:7b")).toBeInTheDocument();
+});
+
+test("disables the composer while a model switch is warming", async () => {
+  let warmupResolver!: () => void;
+  const warmupDone = new Promise<void>((resolve) => {
+    warmupResolver = resolve;
+  });
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+
+    if (url.endsWith("/api/models")) {
+      return new Response(
+        JSON.stringify({
+          models: [
+            { name: "llama3.1:8b", modifiedAt: "2026-04-20T18:00:00Z", size: 123 },
+            { name: "qwen2.5:7b", modifiedAt: "2026-04-20T18:01:00Z", size: 456 }
+          ],
+          fetchedAt: "2026-04-20T18:02:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          ready: true,
+          model: "qwen2.5-coder:7b",
+          warmedAt: "2026-04-20T18:04:00Z",
+          loadDuration: 125_000_000,
+          totalDuration: 130_000_000
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions")) {
+      return new Response(
+        JSON.stringify({
+          sessions: [{ id: "sess_1", title: "New chat", model: "llama3.1:8b", updatedAt: "2026-04-20T18:03:00Z" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1")) {
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "New chat",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:03:00.000Z",
+            messages: [],
+            overrides: {}
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/health")) {
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          service: "api-gateway",
+          dependencies: { chatService: "ok", modelService: "ok", sessionService: "ok", metricsService: "degraded" }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/metrics/gpu")) {
+      return new Response(
+        JSON.stringify({
+          status: "unavailable",
+          sampledAt: "2026-04-20T18:02:30Z",
+          reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      await warmupDone;
+
+      return new Response(
+        JSON.stringify({
+          ready: true,
+          model: "qwen2.5:7b",
+          warmedAt: "2026-04-20T18:04:00Z"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1/model-switch")) {
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "New chat",
+            model: "qwen2.5:7b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:04:00.000Z",
+            messages: [
+              {
+                id: "switch_sess_1_2026-04-20T18:04:00.000Z",
+                role: "system",
+                content: "",
+                createdAt: "2026-04-20T18:04:00.000Z",
+                kind: "model_switch",
+                model: "qwen2.5:7b"
+              }
+            ],
+            overrides: {}
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    throw new Error(`Unhandled fetch for ${url}`);
+  });
+
+  render(<App />);
+
+  fireEvent.click(screen.getAllByRole("button", { name: /models/i })[0]!);
+  const selector = await screen.findByRole("combobox", { name: /model selector/i });
+  fireEvent.change(selector, {
+    target: { value: "qwen2.5:7b" }
+  });
+
+  await waitFor(() => {
+    expect(screen.getByRole("textbox", { name: /prompt/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
+  });
+
+  warmupResolver();
+
+  await waitFor(() => {
+    expect(screen.getByText("Switched to qwen2.5:7b")).toBeInTheDocument();
   });
 });
 
@@ -242,6 +456,47 @@ test("loads and saves app defaults and session overrides", async () => {
       );
     }
 
+    if (url.endsWith("/api/models/warm")) {
+      requests.push({ url, body: String(init?.body ?? "") });
+      return new Response(
+        JSON.stringify({
+          ready: true,
+          model: "llama3.1:8b",
+          warmedAt: "2026-04-20T18:04:00Z",
+          loadDuration: 125_000_000,
+          totalDuration: 130_000_000
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/sessions/sess_1/model-switch")) {
+      requests.push({ url, body: String(init?.body ?? "") });
+      return new Response(
+        JSON.stringify({
+          session: {
+            id: "sess_1",
+            title: "Troubleshooting nginx config",
+            model: "llama3.1:8b",
+            createdAt: "2026-04-20T18:00:00.000Z",
+            updatedAt: "2026-04-20T18:04:00.000Z",
+            messages: [
+              {
+                id: "switch_sess_1_2026-04-20T18:04:00.000Z",
+                role: "system",
+                content: "",
+                createdAt: "2026-04-20T18:04:00.000Z",
+                kind: "model_switch",
+                model: "llama3.1:8b"
+              }
+            ],
+            overrides: {}
+          }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
     if (url.endsWith("/api/chat/stop")) {
       return new Response(JSON.stringify({ stopped: true }), {
         headers: {
@@ -352,6 +607,19 @@ test("creates a new session from the active model", async () => {
           status: "unavailable",
           sampledAt: "2026-04-20T18:02:30Z",
           reason: "not_configured"
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    }
+
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          ready: true,
+          model: "qwen2.5-coder:7b",
+          warmedAt: "2026-04-20T18:04:00Z",
+          loadDuration: 125_000_000,
+          totalDuration: 130_000_000
         }),
         { headers: { "content-type": "application/json" } }
       );
@@ -731,6 +999,22 @@ test("uses the currently selected model and surfaces stream errors", async () =>
       );
     }
 
+    if (url.endsWith("/api/models/warm")) {
+      return new Response(
+        JSON.stringify({
+          model: "qwen2.5-coder:7b",
+          ready: true,
+          warmedAt: "2026-04-20T18:02:31Z",
+          loadDuration: 120_000_000
+        }),
+        {
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+
     if (url.endsWith("/api/chat/stream")) {
       chatRequests.push(String(init?.body ?? ""));
       return new Response(
@@ -767,6 +1051,11 @@ test("uses the currently selected model and surfaces stream errors", async () =>
   fireEvent.change(screen.getByRole("combobox", { name: /model selector/i }), {
     target: { value: "qwen2.5-coder:7b" }
   });
+
+  await waitFor(() => {
+    expect(screen.getByText("qwen2.5-coder:7b ready")).toBeInTheDocument();
+  });
+
   fireEvent.change(screen.getByPlaceholderText("Send a message to the model..."), {
     target: { value: "Switch models" }
   });
