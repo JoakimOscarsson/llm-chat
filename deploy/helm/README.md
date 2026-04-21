@@ -19,7 +19,7 @@ The repo now includes two Kubernetes E2E workflows:
 - `.github/workflows/k8s-kind-e2e.yml`
   - always-safe `kind` install test
   - uses stubbed Ollama
-  - runs Playwright against the deployed cluster
+  - runs smoke checks against the deployed cluster
 - `.github/workflows/k8s-real-backend-e2e.yml`
   - manual workflow for a real Ollama backend
   - reads GitHub Environment secrets from the `e2e-real` environment

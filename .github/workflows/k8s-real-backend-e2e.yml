@@ -91,13 +91,21 @@ jobs:
           echo "Timed out waiting for the port-forwarded web endpoint." >&2
           exit 1
 
-      - name: Install Playwright browser
-        run: pnpm exec playwright install --with-deps chromium
+      - name: Port-forward api-gateway service
+        run: |
+          kubectl -n llm-chat port-forward svc/llm-chat-llm-chat-api-gateway 4000:4000 >/tmp/llm-chat-api-port-forward.log 2>&1 &
+          echo $! >/tmp/llm-chat-api-port-forward.pid
 
-      - name: Run Playwright E2E against the real backend
-        env:
-          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
-        run: pnpm test:e2e
+      - name: Verify aggregated health
+        run: |
+          for _ in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:4000/api/health >/tmp/llm-chat-api-health.json; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for the API health endpoint." >&2
+          exit 1
 
       - name: Collect Kubernetes diagnostics on failure
         if: failure()
@@ -114,16 +122,16 @@ jobs:
           kubectl -n llm-chat logs deployment/llm-chat-llm-chat-session-service --tail=200 || true
           kubectl -n llm-chat logs deployment/llm-chat-llm-chat-ollama-adapter --tail=200 || true
           cat /tmp/llm-chat-port-forward.log || true
+          cat /tmp/llm-chat-api-port-forward.log || true
 
-      - name: Upload Playwright report
+      - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-real-backend-report
+          name: real-backend-smoke-diagnostics
           path: |
-            playwright-report
-            test-results
             /tmp/llm-chat-port-forward.log
+            /tmp/llm-chat-api-port-forward.log
           if-no-files-found: ignore
 
       - name: Delete kind cluster

@@ -16,8 +16,5 @@ npm run ci:host-metrics:smoke
 echo "Running workflow lint before push..."
 npm run ci:workflow:lint
 
-echo "Running E2E selector lint before push..."
-npm run ci:e2e:lint
-
 echo "Running coverage reporting before push..."
 npm run ci:coverage

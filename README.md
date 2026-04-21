@@ -33,7 +33,7 @@ Implemented now:
 - Kubernetes Helm packaging with in-cluster Postgres and Redis
 - Local compose parity for the same runtime topology
 - Dockerized Helm validation in CI and the pre-push path
-- `kind`-based Kubernetes install plus Playwright E2E in GitHub Actions
+- `kind`-based Kubernetes install and service-health smoke checks in GitHub Actions
 - Manual real-backend Kubernetes E2E workflow using GitHub Environment secrets
 
 Current limitations:
@@ -132,7 +132,6 @@ These commands are the shared validation path used locally, by the pre-push hook
 - `npm run ci:workflow:lint`
 - `npm run ci:docker:validate`
 - `npm run ci:docker:static-analysis`
-- `npm run test:e2e` for Playwright once a target app is already running
 
 Git hooks:
 
@@ -156,7 +155,7 @@ The Helm chart includes:
 GitHub Actions also includes:
 
 - `.github/workflows/k8s-kind-e2e.yml`
-  Runs a self-contained `kind` deployment with stubbed Ollama and Playwright E2E on every PR and push to `main`.
+  Runs a self-contained `kind` deployment with stubbed Ollama and Kubernetes health smoke checks on every PR and push to `main`.
 - `.github/workflows/k8s-real-backend-e2e.yml`
   Manual real-backend cluster E2E using GitHub Environment secrets.
 
