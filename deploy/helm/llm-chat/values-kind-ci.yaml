@@ -4,6 +4,9 @@ ingress:
 cloudflareTunnel:
   enabled: false
 
+sessionMigration:
+  enabled: false
+
 ollama:
   useStub: true
   maxParallelRequests: 1
