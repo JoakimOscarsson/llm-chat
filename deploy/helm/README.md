@@ -33,5 +33,7 @@ To configure the real-backend workflow in GitHub:
    - `OLLAMA_BASE_URL`
    - `CF_ACCESS_CLIENT_ID`
    - `CF_ACCESS_CLIENT_SECRET`
+   - `METRICS_CF_ACCESS_CLIENT_ID` if the metrics route is behind Cloudflare Access
+   - `METRICS_CF_ACCESS_CLIENT_SECRET` if the metrics route is behind Cloudflare Access
 
 The real-backend workflow keeps those values out of the repo and passes them into Helm at runtime only.

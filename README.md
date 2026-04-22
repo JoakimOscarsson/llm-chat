@@ -114,6 +114,8 @@ The main runtime variables are:
 - `OLLAMA_QUEUE_PROMPT_AFTER_MS`: delay before the UI prompts queued users to keep waiting or cancel
 - `OLLAMA_RUNTIME_STATUS_TTL_MS`: cache lifetime for fast-path/runtime status polling
 - `METRICS_BASE_URL`: external metrics backend base URL that `services/metrics-service` polls
+- `METRICS_CF_ACCESS_CLIENT_ID`: optional Cloudflare Access client ID for the metrics backend
+- `METRICS_CF_ACCESS_CLIENT_SECRET`: optional Cloudflare Access client secret for the metrics backend
 
 The app injects these fixed upstream auth headers server-side only:
 
@@ -171,6 +173,8 @@ Upload the real-backend test secrets in GitHub here:
    - `OLLAMA_BASE_URL`
    - `CF_ACCESS_CLIENT_ID`
    - `CF_ACCESS_CLIENT_SECRET`
+   - `METRICS_CF_ACCESS_CLIENT_ID` if your metrics route is also behind Cloudflare Access
+   - `METRICS_CF_ACCESS_CLIENT_SECRET` if your metrics route is also behind Cloudflare Access
 
 The manual workflow `.github/workflows/k8s-real-backend-e2e.yml` is already configured to read those environment secrets.
 

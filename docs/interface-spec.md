@@ -80,12 +80,19 @@ This means each service should expose environment toggles for stub mode instead 
 
 - `PORT`
 - `METRICS_BASE_URL`
+- `METRICS_CF_ACCESS_CLIENT_ID`
+- `METRICS_CF_ACCESS_CLIENT_SECRET`
 - `METRICS_TIMEOUT_MS`
 - `METRICS_STALE_AFTER_MS`
 
 Expected upstream endpoint:
 
 - `GET ${METRICS_BASE_URL}/gpu`
+
+If the metrics endpoint sits behind Cloudflare Access, `metrics-service` should forward these headers only when configured:
+
+- `CF-Access-Client-Id`
+- `CF-Access-Client-Secret`
 
 The upstream raw GPU payload may include optional telemetry fields:
 
@@ -109,6 +116,11 @@ The upstream raw GPU payload may include optional telemetry fields:
 - `OLLAMA_MAX_PARALLEL_REQUESTS`
 - `OLLAMA_QUEUE_PROMPT_AFTER_MS`
 - `OLLAMA_RUNTIME_STATUS_TTL_MS`
+
+If the Ollama endpoint sits behind Cloudflare Access, `ollama-adapter` should forward these headers only when configured:
+
+- `CF-Access-Client-Id`
+- `CF-Access-Client-Secret`
 - `POD_INSTANCE_ID`
 
 ### `host-metrics-server`

@@ -5,6 +5,8 @@ import { gpuMetricsResponseSchema } from "@llm-chat-app/contracts";
 export type MetricsServiceConfig = {
   port: number;
   metricsBaseUrl: string;
+  metricsCfAccessClientId: string;
+  metricsCfAccessClientSecret: string;
   metricsTimeoutMs: number;
   metricsStaleAfterMs: number;
 };
@@ -33,9 +35,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MetricsService
   return {
     port: Number(env.PORT ?? 4004),
     metricsBaseUrl: env.METRICS_BASE_URL ?? "",
+    metricsCfAccessClientId: env.METRICS_CF_ACCESS_CLIENT_ID ?? "",
+    metricsCfAccessClientSecret: env.METRICS_CF_ACCESS_CLIENT_SECRET ?? "",
     metricsTimeoutMs: Number(env.METRICS_TIMEOUT_MS ?? 1500),
     metricsStaleAfterMs: Number(env.METRICS_STALE_AFTER_MS ?? 30_000)
   };
+}
+
+function buildOptionalCfAccessHeaders(config: MetricsServiceConfig) {
+  const headers: Record<string, string> = {};
+
+  if (config.metricsCfAccessClientId.trim()) {
+    headers["CF-Access-Client-Id"] = config.metricsCfAccessClientId;
+  }
+
+  if (config.metricsCfAccessClientSecret.trim()) {
+    headers["CF-Access-Client-Secret"] = config.metricsCfAccessClientSecret;
+  }
+
+  return headers;
 }
 
 function unavailable(reason: string, now: Date) {
@@ -134,6 +152,7 @@ export function createApp(options: CreateAppOptions = {}): FastifyInstance {
 
     try {
       const response = await fetchImpl(`${config.metricsBaseUrl}/gpu`, {
+        headers: buildOptionalCfAccessHeaders(config),
         signal: abortController.signal
       });
       const payload = (await response.json()) as unknown;

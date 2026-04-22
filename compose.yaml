@@ -122,6 +122,12 @@ services:
       context: .
       dockerfile: docker/runtime.Dockerfile
     command: pnpm --filter @llm-chat-app/metrics-service dev
+    environment:
+      METRICS_BASE_URL: ${METRICS_BASE_URL:-}
+      METRICS_CF_ACCESS_CLIENT_ID: ${METRICS_CF_ACCESS_CLIENT_ID:-}
+      METRICS_CF_ACCESS_CLIENT_SECRET: ${METRICS_CF_ACCESS_CLIENT_SECRET:-}
+      METRICS_TIMEOUT_MS: ${METRICS_TIMEOUT_MS:-1500}
+      METRICS_STALE_AFTER_MS: ${METRICS_STALE_AFTER_MS:-30000}
     ports:
       - "${METRICS_SERVICE_PORT:-4004}:4004"
 

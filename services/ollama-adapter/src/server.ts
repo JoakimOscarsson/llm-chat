@@ -114,6 +114,20 @@ function parseUpstreamErrorMessage(errorText: string) {
   return trimmed;
 }
 
+function buildOptionalCfAccessHeaders(config: OllamaAdapterConfig) {
+  const headers: Record<string, string> = {};
+
+  if (config.cfAccessClientId.trim()) {
+    headers["CF-Access-Client-Id"] = config.cfAccessClientId;
+  }
+
+  if (config.cfAccessClientSecret.trim()) {
+    headers["CF-Access-Client-Secret"] = config.cfAccessClientSecret;
+  }
+
+  return headers;
+}
+
 function thinkingUnsupported(errorText: string, status: number) {
   if (status < 400) {
     return false;
@@ -203,8 +217,7 @@ async function fetchChatStream(
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "CF-Access-Client-Id": config.cfAccessClientId,
-      "CF-Access-Client-Secret": config.cfAccessClientSecret
+      ...buildOptionalCfAccessHeaders(config)
     },
     body: JSON.stringify(body),
     signal: abortSignal
@@ -231,8 +244,7 @@ async function runWarmGenerate(
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "CF-Access-Client-Id": config.cfAccessClientId,
-      "CF-Access-Client-Secret": config.cfAccessClientSecret
+      ...buildOptionalCfAccessHeaders(config)
     },
     body: JSON.stringify({
       model: payload.model,
@@ -443,8 +455,7 @@ async function generateChatTitle(
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "CF-Access-Client-Id": config.cfAccessClientId,
-        "CF-Access-Client-Secret": config.cfAccessClientSecret
+        ...buildOptionalCfAccessHeaders(config)
       },
       body: JSON.stringify({
         model: payload.model ?? "llama3.1:8b",
@@ -535,8 +546,7 @@ async function fetchModels(config: OllamaAdapterConfig, fetchImpl: typeof fetch)
 
   const response = await fetchImpl(`${config.ollamaBaseUrl}/api/tags`, {
     headers: {
-      "CF-Access-Client-Id": config.cfAccessClientId,
-      "CF-Access-Client-Secret": config.cfAccessClientSecret
+      ...buildOptionalCfAccessHeaders(config)
     }
   });
 
@@ -553,8 +563,7 @@ async function fetchModels(config: OllamaAdapterConfig, fetchImpl: typeof fetch)
           method: "POST",
           headers: {
             "content-type": "application/json",
-            "CF-Access-Client-Id": config.cfAccessClientId,
-            "CF-Access-Client-Secret": config.cfAccessClientSecret
+            ...buildOptionalCfAccessHeaders(config)
           },
           body: JSON.stringify({
             model: model.name,
@@ -593,8 +602,7 @@ async function fetchResidentModels(config: OllamaAdapterConfig, fetchImpl: typeo
 
   const response = await fetchImpl(`${config.ollamaBaseUrl}/api/ps`, {
     headers: {
-      "CF-Access-Client-Id": config.cfAccessClientId,
-      "CF-Access-Client-Secret": config.cfAccessClientSecret
+      ...buildOptionalCfAccessHeaders(config)
     }
   });
 

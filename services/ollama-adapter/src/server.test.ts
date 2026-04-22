@@ -124,6 +124,48 @@ test("GET /internal/provider/models forwards Cloudflare headers and normalizes t
   ]);
 });
 
+test("GET /internal/provider/models omits Cloudflare headers when they are not configured", async () => {
+  let seenHeaders: Headers | undefined;
+
+  const app = createApp({
+    config: {
+      port: 4005,
+      ollamaBaseUrl: "https://example-ollama.test",
+      cfAccessClientId: "",
+      cfAccessClientSecret: "",
+      ollamaTimeoutMs: 60_000,
+      useStub: false
+    },
+    fetchImpl: async (input, init) => {
+      if (String(input) === "https://example-ollama.test/api/tags") {
+        seenHeaders = new Headers(init?.headers);
+
+        return new Response(
+          JSON.stringify({
+            models: []
+          }),
+          {
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        );
+      }
+
+      throw new Error(`Unhandled fetch for ${String(input)}`);
+    }
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/internal/provider/models"
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(seenHeaders?.has("CF-Access-Client-Id"), false);
+  assert.equal(seenHeaders?.has("CF-Access-Client-Secret"), false);
+});
+
 test("GET /internal/provider/models marks ambiguous models as non-chat when show metadata is unavailable", async () => {
   const app = createApp({
     config: {
